@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ANSIBLE_HOME="${ANSIBLE_HOME:-/opt/ansible}"
+PROFILE=/etc/profile.d/ansible.sh
+usage() {
+  cat <<'USAGE'
+Usage:
+  ansible-local-switch --help | -h
+  ansible-local-switch --list
+  ansible-local-switch <python-version>_<ansible-version>
+  ansible-local-switch --permanent <python-version>_<ansible-version>
+
+Behavior:
+  <runtime>              Switch only the current shell session when used via
+                         the shell function from /etc/profile.d/ansible.sh.
+  --permanent <runtime>  Also update /opt/ansible/current and profile defaults.
+  --list                 List installed runtimes.
+
+Examples:
+  ansible-local-switch --list
+  ansible-local-switch 3.12_11.3.0
+  ansible-local-switch --permanent 3.12_13.4.0
+USAGE
+}
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then usage; exit 0; fi
+if [ "${1:-}" = "--list" ]; then
+  find "$ANSIBLE_HOME/apps" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  exit 0
+fi
+
+permanent=0
+runtime=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --permanent) permanent=1 ;;
+    --*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *)
+      if [ -n "$runtime" ]; then echo "Only one runtime may be specified." >&2; usage >&2; exit 2; fi
+      runtime="$1"
+      ;;
+  esac
+  shift
+done
+
+[ -n "$runtime" ] || { usage >&2; exit 2; }
+case "$runtime" in *_*) ;; *) echo "Runtime must look like <python-version>_<ansible-version>" >&2; exit 2;; esac
+target="$ANSIBLE_HOME/apps/$runtime"
+[ -x "$target/bin/ansible" ] || { echo "Runtime does not exist or has no ansible: $target" >&2; exit 1; }
+
+if [ "$permanent" -ne 1 ]; then
+  echo "Session-only switching must be done through the shell function loaded from /etc/profile.d/ansible.sh." >&2
+  echo "Run: source /etc/profile.d/ansible.sh" >&2
+  echo "Then: ansible-local-switch $runtime" >&2
+  echo "For persistent default: ansible-local-switch --permanent $runtime" >&2
+  exit 2
+fi
+
+python_version="${runtime%%_*}"
+ansible_version="${runtime#*_}"
+ln -sfn "$target" "$ANSIBLE_HOME/current.tmp"
+mv -Tf "$ANSIBLE_HOME/current.tmp" "$ANSIBLE_HOME/current"
+if grep -q '^export PYTHON_VERSION=' "$PROFILE"; then
+  sed -i "s|^export PYTHON_VERSION=.*|export PYTHON_VERSION=\"\${PYTHON_VERSION:-$python_version}\"|" "$PROFILE"
+fi
+if grep -q '^export ANSIBLE_VERSION=' "$PROFILE"; then
+  sed -i "s|^export ANSIBLE_VERSION=.*|export ANSIBLE_VERSION=\"\${ANSIBLE_VERSION:-\${ANSIBLE_CORE_VERSION:-$ansible_version}}\"|" "$PROFILE"
+fi
+if grep -q '^export ANSIBLE_CORE_VERSION=' "$PROFILE"; then
+  sed -i "s|^export ANSIBLE_CORE_VERSION=.*|export ANSIBLE_CORE_VERSION=\"\${ANSIBLE_CORE_VERSION:-\${ANSIBLE_VERSION}}\"|" "$PROFILE"
+fi
+echo "Permanently switched /opt/ansible/current -> $target"
+echo "Current shell updated automatically when using the ansible-local-switch shell function."

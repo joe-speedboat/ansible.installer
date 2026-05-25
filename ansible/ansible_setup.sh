@@ -11,6 +11,7 @@ ANSIBLE_VERSION="${ANSIBLE_VERSION:-${ANSIBLE_CORE_VERSION:-13.4.0}}"
 ANSIBLE_HOME="${ANSIBLE_HOME:-/opt/ansible}"
 ANSIBLE_RUNTIME="${ANSIBLE_RUNTIME:-${PYTHON_VERSION}_${ANSIBLE_VERSION}}"
 ANSIBLE_VENV_PATH="${ANSIBLE_VENV_PATH:-${ANSIBLE_HOME}/apps/${ANSIBLE_RUNTIME}}"
+ANSIBLE_UV_MARKER="${ANSIBLE_HOME}/.ansible-uv-installer"
 # Default concrete layout: /opt/ansible/apps/<runtime>, /opt/ansible/current,
 # /etc/profile.d/ansible.sh, /etc/ansible, ansible-local-switch, adoc.
 # Package install pattern: uv pip install --python /opt/ansible/apps/<runtime>/bin/python ansible==${ANSIBLE_VERSION} argcomplete.
@@ -20,7 +21,93 @@ UV_BIN="${UV_BIN:-}"
 log() { printf '[ansible-installer] %s\n' "$*"; }
 fail() { printf '[ansible-installer] ERROR: %s\n' "$*" >&2; exit 1; }
 
+is_ansible_uv_installation() {
+  [ -f "$ANSIBLE_UV_MARKER" ] && return 0
+  [ -d "$ANSIBLE_HOME/apps" ] && [ -x /usr/local/sbin/ansible-local-switch ] && return 0
+  [ -r /etc/profile.d/ansible.sh ] && grep -q 'ANSIBLE_UV_INSTALLER=1' /etc/profile.d/ansible.sh && return 0
+  return 1
+}
+
+detect_foreign_ansible_installation() {
+  if is_ansible_uv_installation; then
+    log "This is an ansible-uv managed installation; continuing and upgrading runtime if needed"
+    return 0
+  fi
+
+  reasons=""
+
+  if command -v rpm >/dev/null 2>&1; then
+    rpm_matches="$(rpm -q ansible ansible-core 2>/dev/null | grep -v 'is not installed' || true)"
+    if [ -n "$rpm_matches" ]; then
+      reasons="${reasons}
+- RPM-managed Ansible package detected:
+${rpm_matches}"
+    fi
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    pip_matches="$(python3 -m pip show ansible ansible-core 2>/dev/null | awk '/^Name: / || /^Version: / {print}' || true)"
+    if [ -n "$pip_matches" ]; then
+      reasons="${reasons}
+- pip-managed Ansible package detected:
+${pip_matches}"
+    fi
+  fi
+
+  ansible_path="$(command -v ansible 2>/dev/null || true)"
+  case "$ansible_path" in
+    ""|"$ANSIBLE_HOME"/current/bin/ansible|"$ANSIBLE_HOME"/apps/*/bin/ansible) ;;
+    *)
+      reasons="${reasons}
+- Existing ansible command detected outside ansible-uv: ${ansible_path}"
+      ;;
+  esac
+
+  if [ -r /etc/profile.d/ansible.sh ] && ! grep -q 'ANSIBLE_UV_INSTALLER=1' /etc/profile.d/ansible.sh; then
+    reasons="${reasons}
+- Existing /etc/profile.d/ansible.sh without ansible-uv marker detected. This may come from ansible.bitbull.ch or another installer."
+  fi
+
+  if [ -e /etc/ansible ] && [ ! -L /etc/ansible ] && [ ! -f "$ANSIBLE_UV_MARKER" ]; then
+    reasons="${reasons}
+- Existing /etc/ansible directory detected. This may be from RPM, ansible.bitbull.ch, pip, or manual installation."
+  fi
+
+  if [ -n "$reasons" ]; then
+    cat >&2 <<EOF_CONFLICT
+[ansible-installer] ERROR: Foreign Ansible installation detected.
+
+This installer intentionally stops instead of mixing ansible-uv with another
+Ansible installation method such as RPM, ansible.bitbull.ch, pip, or a manual
+/usr/local installation.
+${reasons}
+
+Please remove or migrate the existing Ansible installation first, then rerun:
+  curl -L ansible-uv.bitbull.ch | sudo sh
+
+If this host is already managed by ansible-uv, make sure ${ANSIBLE_UV_MARKER}
+exists or /etc/profile.d/ansible.sh contains ANSIBLE_UV_INSTALLER=1.
+EOF_CONFLICT
+    exit 1
+  fi
+}
+
+install_repo_file() {
+  src="$1"
+  dest="$2"
+  mode="$3"
+  owner_group="$4"
+  tmp="${dest}.tmp.$$"
+  mkdir -p "$(dirname "$dest")"
+  curl -fsSL "$RAW_BASE/$src" -o "$tmp"
+  chmod "$mode" "$tmp"
+  chown "$owner_group" "$tmp"
+  mv -f "$tmp" "$dest"
+}
+
 [ "$(id -u)" -eq 0 ] || fail "run as root, e.g. curl -L .../ansible_setup.sh | sudo sh"
+detect_foreign_ansible_installation
+
 [ -r /etc/os-release ] || fail "missing /etc/os-release"
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -68,8 +155,9 @@ else
   "$UV_BIN" venv --python "$PYTHON_VERSION" "$ANSIBLE_VENV_PATH"
 fi
 
-log "Installing ansible==${ANSIBLE_VERSION} and argcomplete"
-"$UV_BIN" pip install --python "$ANSIBLE_VENV_PATH/bin/python" "ansible==${ANSIBLE_VERSION}" argcomplete
+log "Installing/upgrading ansible==${ANSIBLE_VERSION} and argcomplete"
+# Reruns use the equivalent of: uv pip install --upgrade ansible==${ANSIBLE_VERSION} argcomplete
+"$UV_BIN" pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" "ansible==${ANSIBLE_VERSION}" argcomplete
 
 log "Updating active runtime symlink"
 ln -sfn "$ANSIBLE_VENV_PATH" "$ANSIBLE_HOME/current.tmp"
@@ -98,220 +186,20 @@ if [ ! -e "$ANSIBLE_HOME/inventory/localhost" ]; then
   printf '%s\n' 'localhost ansible_connection=local ansible_become=False' > "$ANSIBLE_HOME/inventory/localhost"
 fi
 
-log "Installing /etc/profile.d/ansible.sh"
-cat > /etc/profile.d/ansible.sh <<EOF_PROFILE
-#!/bin/bash
+log "Installing /etc/profile.d/ansible.sh from repository"
+install_repo_file "ansible/files/etc/profile.d/ansible.sh" /etc/profile.d/ansible.sh 0644 root:root
+# Render install-time defaults into the profile template.
+sed -i \
+  -e "s|@PYTHON_VERSION@|${PYTHON_VERSION}|g" \
+  -e "s|@ANSIBLE_VERSION@|${ANSIBLE_VERSION}|g" \
+  /etc/profile.d/ansible.sh
 
-export ANSIBLE_HOME="\${ANSIBLE_HOME:-/opt/ansible}"
-export PYTHON_VERSION="\${PYTHON_VERSION:-${PYTHON_VERSION}}"
-export ANSIBLE_VERSION="\${ANSIBLE_VERSION:-${ANSIBLE_CORE_VERSION:-${ANSIBLE_VERSION}}}"
-# Compatibility for older shells/scripts that still inspect ANSIBLE_CORE_VERSION.
-export ANSIBLE_CORE_VERSION="\${ANSIBLE_CORE_VERSION:-\${ANSIBLE_VERSION}}"
-export ANSIBLE_RUNTIME="\${ANSIBLE_RUNTIME:-\${PYTHON_VERSION}_\${ANSIBLE_VERSION}}"
-
-_ansible_user_overrides_venv=0
-if [[ -r "\$HOME/.ansible.sh" ]]; then
-  if grep -Eq '^[[:space:]]*(export[[:space:]]+)?ANSIBLE_VENV_PATH=' "\$HOME/.ansible.sh"; then
-    _ansible_user_overrides_venv=1
-  fi
-  source "\$HOME/.ansible.sh"
-fi
-
-export ANSIBLE_VERSION="\${ANSIBLE_VERSION:-\${ANSIBLE_CORE_VERSION:-${ANSIBLE_VERSION}}}"
-export ANSIBLE_CORE_VERSION="\${ANSIBLE_CORE_VERSION:-\${ANSIBLE_VERSION}}"
-export ANSIBLE_RUNTIME="\${ANSIBLE_RUNTIME:-\${PYTHON_VERSION}_\${ANSIBLE_VERSION}}"
-if [[ "\$_ansible_user_overrides_venv" -eq 1 && -n "\${ANSIBLE_VENV_PATH:-}" ]]; then
-  export ANSIBLE_VENV_PATH
-else
-  export ANSIBLE_VENV_PATH="\${ANSIBLE_HOME}/apps/\${ANSIBLE_RUNTIME}"
-fi
-unset _ansible_user_overrides_venv
-
-if [[ -n "\${VIRTUAL_ENV:-}" ]]; then
-  _ansible_new_path=""
-  IFS=':' read -r -a _ansible_path_parts <<< "\$PATH"
-  for _ansible_path_part in "\${_ansible_path_parts[@]}"; do
-    if [[ "\$_ansible_path_part" != "\${VIRTUAL_ENV}/bin" ]]; then
-      if [[ -z "\$_ansible_new_path" ]]; then
-        _ansible_new_path="\$_ansible_path_part"
-      else
-        _ansible_new_path="\${_ansible_new_path}:\${_ansible_path_part}"
-      fi
-    fi
-  done
-  export PATH="\$_ansible_new_path"
-  unset _ansible_new_path _ansible_path_part _ansible_path_parts
-fi
-
-export VIRTUAL_ENV="\$ANSIBLE_VENV_PATH"
-export VIRTUAL_ENV_DISABLE_PROMPT=1
-
-alias cda='cd \$ANSIBLE_HOME'
-alias via='ansible-vault edit'
-
-if [[ -r "\$ANSIBLE_VENV_PATH/bin/activate" ]]; then
-  source "\$ANSIBLE_VENV_PATH/bin/activate"
-fi
-
-umask 0007
-export PS1="(\${ANSIBLE_RUNTIME})[\\u@\\h \\W]\\$ "
-
-ansible-local-switch() {
-  local _ansible_permanent=0
-  local _ansible_runtime=""
-  local _arg
-
-  if [[ "\${1:-}" == "--help" || "\${1:-}" == "-h" ]]; then
-    command /usr/local/sbin/ansible-local-switch --help
-    return \$?
-  fi
-  if [[ "\${1:-}" == "--list" ]]; then
-    command /usr/local/sbin/ansible-local-switch --list
-    return \$?
-  fi
-
-  while [[ \$# -gt 0 ]]; do
-    _arg="\$1"
-    case "\$_arg" in
-      --permanent) _ansible_permanent=1 ;;
-      --*) command /usr/local/sbin/ansible-local-switch --help; return 2 ;;
-      *)
-        if [[ -n "\$_ansible_runtime" ]]; then
-          echo "Only one runtime may be specified." >&2
-          command /usr/local/sbin/ansible-local-switch --help >&2
-          return 2
-        fi
-        _ansible_runtime="\$_arg"
-        ;;
-    esac
-    shift
-  done
-
-  if [[ -z "\$_ansible_runtime" ]]; then
-    command /usr/local/sbin/ansible-local-switch --help >&2
-    return 2
-  fi
-  case "\$_ansible_runtime" in
-    *_*) ;;
-    *) echo "Runtime must look like <python-version>_<ansible-version>" >&2; return 2 ;;
-  esac
-  if [[ ! -x "\${ANSIBLE_HOME}/apps/\${_ansible_runtime}/bin/ansible" ]]; then
-    echo "Runtime does not exist or has no ansible: \${ANSIBLE_HOME}/apps/\${_ansible_runtime}" >&2
-    return 1
-  fi
-
-  if [[ "\$_ansible_permanent" -eq 1 ]]; then
-    local _ansible_switch_status=0
-    if [[ "\${EUID:-\$(id -u)}" -eq 0 ]]; then
-      command /usr/local/sbin/ansible-local-switch --permanent "\$_ansible_runtime" || _ansible_switch_status=\$?
-    else
-      sudo /usr/local/sbin/ansible-local-switch --permanent "\$_ansible_runtime" || _ansible_switch_status=\$?
-    fi
-    [[ "\$_ansible_switch_status" -eq 0 ]] || return "\$_ansible_switch_status"
-    unset PYTHON_VERSION ANSIBLE_VERSION ANSIBLE_CORE_VERSION ANSIBLE_RUNTIME ANSIBLE_VENV_PATH VIRTUAL_ENV
-  else
-    export PYTHON_VERSION="\${_ansible_runtime%%_*}"
-    export ANSIBLE_VERSION="\${_ansible_runtime#*_}"
-    export ANSIBLE_CORE_VERSION="\$ANSIBLE_VERSION"
-    export ANSIBLE_RUNTIME="\$_ansible_runtime"
-    unset ANSIBLE_VENV_PATH VIRTUAL_ENV
-    echo "Switched current shell to \$_ansible_runtime"
-    echo "Use: ansible-local-switch --permanent \$_ansible_runtime  # to change the default"
-  fi
-
-  source /etc/profile.d/ansible.sh
-}
-
-if [[ "\$USER" == "root" ]]; then
-  echo "WARNING: Using Ansible as root is not recommended. Use an unprivileged user in the ansible group instead."
-fi
-EOF_PROFILE
-chmod 0644 /etc/profile.d/ansible.sh
-
-log "Installing ansible-local-switch"
-cat > /usr/local/sbin/ansible-local-switch <<'EOF_SWITCH'
-#!/usr/bin/env bash
-set -euo pipefail
-ANSIBLE_HOME="${ANSIBLE_HOME:-/opt/ansible}"
-PROFILE=/etc/profile.d/ansible.sh
-usage() {
-  cat <<'USAGE'
-Usage:
-  ansible-local-switch --help | -h
-  ansible-local-switch --list
-  ansible-local-switch <python-version>_<ansible-version>
-  ansible-local-switch --permanent <python-version>_<ansible-version>
-
-Behavior:
-  <runtime>              Switch only the current shell session when used via
-                         the shell function from /etc/profile.d/ansible.sh.
-  --permanent <runtime>  Also update /opt/ansible/current and profile defaults.
-  --list                 List installed runtimes.
-
-Examples:
-  ansible-local-switch --list
-  ansible-local-switch 3.12_11.3.0
-  ansible-local-switch --permanent 3.12_13.4.0
-USAGE
-}
-
-if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then usage; exit 0; fi
-if [ "${1:-}" = "--list" ]; then
-  find "$ANSIBLE_HOME/apps" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
-  exit 0
-fi
-
-permanent=0
-runtime=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --permanent) permanent=1 ;;
-    --*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
-    *)
-      if [ -n "$runtime" ]; then echo "Only one runtime may be specified." >&2; usage >&2; exit 2; fi
-      runtime="$1"
-      ;;
-  esac
-  shift
-done
-
-[ -n "$runtime" ] || { usage >&2; exit 2; }
-case "$runtime" in *_*) ;; *) echo "Runtime must look like <python-version>_<ansible-version>" >&2; exit 2;; esac
-target="$ANSIBLE_HOME/apps/$runtime"
-[ -x "$target/bin/ansible" ] || { echo "Runtime does not exist or has no ansible: $target" >&2; exit 1; }
-
-if [ "$permanent" -ne 1 ]; then
-  echo "Session-only switching must be done through the shell function loaded from /etc/profile.d/ansible.sh." >&2
-  echo "Run: source /etc/profile.d/ansible.sh" >&2
-  echo "Then: ansible-local-switch $runtime" >&2
-  echo "For persistent default: ansible-local-switch --permanent $runtime" >&2
-  exit 2
-fi
-
-python_version="${runtime%%_*}"
-ansible_version="${runtime#*_}"
-ln -sfn "$target" "$ANSIBLE_HOME/current.tmp"
-mv -Tf "$ANSIBLE_HOME/current.tmp" "$ANSIBLE_HOME/current"
-if grep -q '^export PYTHON_VERSION=' "$PROFILE"; then
-  sed -i "s|^export PYTHON_VERSION=.*|export PYTHON_VERSION=\"\${PYTHON_VERSION:-$python_version}\"|" "$PROFILE"
-fi
-if grep -q '^export ANSIBLE_VERSION=' "$PROFILE"; then
-  sed -i "s|^export ANSIBLE_VERSION=.*|export ANSIBLE_VERSION=\"\${ANSIBLE_VERSION:-\${ANSIBLE_CORE_VERSION:-$ansible_version}}\"|" "$PROFILE"
-fi
-if grep -q '^export ANSIBLE_CORE_VERSION=' "$PROFILE"; then
-  sed -i "s|^export ANSIBLE_CORE_VERSION=.*|export ANSIBLE_CORE_VERSION=\"\${ANSIBLE_CORE_VERSION:-\${ANSIBLE_VERSION}}\"|" "$PROFILE"
-fi
-echo "Permanently switched /opt/ansible/current -> $target"
-echo "Current shell updated automatically when using the ansible-local-switch shell function."
-EOF_SWITCH
-chmod 0750 /usr/local/sbin/ansible-local-switch
-chown root:ansible /usr/local/sbin/ansible-local-switch
+log "Installing ansible-local-switch from repository"
+install_repo_file "ansible/files/usr/local/sbin/ansible-local-switch" /usr/local/sbin/ansible-local-switch 0750 root:ansible
 ln -sfn /usr/local/sbin/ansible-local-switch /usr/local/bin/ansible-local-switch
 
 log "Installing adoc helper from this repository"
-curl -fsSL "$RAW_BASE/ansible/files/adoc" -o /usr/local/bin/adoc
-chmod 0755 /usr/local/bin/adoc
-chown root:root /usr/local/bin/adoc
+install_repo_file "ansible/files/usr/local/bin/adoc" /usr/local/bin/adoc 0755 root:root
 
 if [ -d /etc/bash_completion.d ]; then
   log "Installing argcomplete hook"
@@ -321,6 +209,16 @@ fi
 if [ ! -e /etc/ansible ]; then
   ln -s "$ANSIBLE_HOME" /etc/ansible
 fi
+
+log "Marking installation as ansible-uv managed"
+cat > "$ANSIBLE_UV_MARKER" <<EOF_MARKER
+ANSIBLE_UV_INSTALLER=1
+ANSIBLE_HOME=$ANSIBLE_HOME
+PYTHON_VERSION=$PYTHON_VERSION
+ANSIBLE_VERSION=$ANSIBLE_VERSION
+ANSIBLE_RUNTIME=$ANSIBLE_RUNTIME
+RAW_BASE=$RAW_BASE
+EOF_MARKER
 
 log "Applying ownership and permissions"
 chown -R root:ansible "$ANSIBLE_HOME"
