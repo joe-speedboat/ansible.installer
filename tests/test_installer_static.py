@@ -57,9 +57,25 @@ def test_switch_helper_installs_to_bin_with_requested_owner_and_mode():
     assert 'rm -f /usr/local/sbin/ansible-local-switch' in text
 
 
+def test_all_installed_ansible_payloads_are_root_ansible_without_other_access():
+    text = SETUP.read_text()
+    assert 'install_repo_file "ansible/files/etc/profile.d/ansible.sh" /etc/profile.d/ansible.sh 0750 root:ansible' in text
+    assert 'install_repo_file "ansible/files/usr/local/bin/adoc" /usr/local/bin/adoc 0750 root:ansible' in text
+    assert 'install -o root -g ansible -m 0640 /dev/null /etc/bash_completion.d/ansible' in text
+    assert 'chown -h root:ansible /etc/ansible' in text
+    assert 'chmod 0750 /usr/local/bin/ansible-local-switch /usr/local/bin/adoc /etc/profile.d/ansible.sh' in text
+    forbidden = [
+        ' /etc/profile.d/ansible.sh 0644 root:root',
+        ' /usr/local/bin/adoc 0755 root:root',
+    ]
+    for marker in forbidden:
+        assert marker not in text
+
+
 def test_opt_ansible_tree_is_root_ansible_and_750():
     text = SETUP.read_text()
     assert 'chown -R root:ansible "$ANSIBLE_HOME"' in text
+    assert 'find "$ANSIBLE_HOME" -type l -exec chown -h root:ansible {} +' in text
     assert 'find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +' in text
     assert 'find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +' in text
     assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +' in text
