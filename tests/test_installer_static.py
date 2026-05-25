@@ -18,6 +18,25 @@ def test_installer_files_exist():
 def test_one_liner_documented():
     text = README.read_text()
     assert "curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh" in text
+    assert text.count("curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh") == 1
+
+
+def test_readme_documents_supported_variables_with_examples():
+    text = README.read_text()
+    required = [
+        "PYTHON_VERSION=3.12",
+        "ANSIBLE_VERSION=13.4.0",
+        "ANSIBLE_CORE_VERSION=",
+        "ANSIBLE_HOME=/opt/ansible",
+        "ANSIBLE_RUNTIME=3.12_13.4.0",
+        "ANSIBLE_VENV_PATH=/opt/ansible/apps/3.12_13.4.0",
+        "ANSIBLE_LOCAL_TEMP=$HOME/.ansible/tmp",
+        "ANSIBLE_LOG_PATH=$HOME/.ansible/ansible.log",
+        "RAW_BASE=",
+        "UV_BIN=/usr/local/bin/uv",
+    ]
+    for marker in required:
+        assert marker in text
 
 
 def test_installer_uses_single_repo_for_payload_files():
@@ -84,6 +103,26 @@ def test_installer_marks_and_allows_ansible_uv_reruns():
     assert ".ansible-uv-installer" in text
     assert "uv pip install --upgrade" in text
     assert "This is an ansible-uv managed installation; continuing" in text
+
+
+def test_profile_shell_function_uses_installed_switch_path():
+    text = PROFILE.read_text()
+    assert "ANSIBLE_UV_INSTALLER=1" in text
+    assert "command /usr/local/bin/ansible-local-switch" in text
+    assert "sudo /usr/local/bin/ansible-local-switch" in text
+    assert "/usr/local/sbin/ansible-local-switch" not in text
+
+
+def test_profile_uses_per_user_ansible_local_temp():
+    text = PROFILE.read_text()
+    assert 'export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"' in text
+    assert 'mkdir -p "$ANSIBLE_LOCAL_TEMP"' in text
+
+
+def test_profile_uses_per_user_ansible_log_path():
+    text = PROFILE.read_text()
+    assert 'export ANSIBLE_LOG_PATH="${ANSIBLE_LOG_PATH:-${HOME}/.ansible/ansible.log}"' in text
+    assert 'mkdir -p "$(dirname "$ANSIBLE_LOG_PATH")"' in text
 
 
 def test_outsourced_shell_files_have_markers():

@@ -46,6 +46,10 @@ fi
 
 export VIRTUAL_ENV="$ANSIBLE_VENV_PATH"
 export VIRTUAL_ENV_DISABLE_PROMPT=1
+export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"
+mkdir -p "$ANSIBLE_LOCAL_TEMP"
+export ANSIBLE_LOG_PATH="${ANSIBLE_LOG_PATH:-${HOME}/.ansible/ansible.log}"
+mkdir -p "$(dirname "$ANSIBLE_LOG_PATH")"
 
 alias cda='cd $ANSIBLE_HOME'
 alias via='ansible-vault edit'
@@ -63,11 +67,11 @@ ansible-local-switch() {
   local _arg
 
   if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    command /usr/local/sbin/ansible-local-switch --help
+    command /usr/local/bin/ansible-local-switch --help
     return $?
   fi
   if [[ "${1:-}" == "--list" ]]; then
-    command /usr/local/sbin/ansible-local-switch --list
+    command /usr/local/bin/ansible-local-switch --list
     return $?
   fi
 
@@ -75,11 +79,11 @@ ansible-local-switch() {
     _arg="$1"
     case "$_arg" in
       --permanent) _ansible_permanent=1 ;;
-      --*) command /usr/local/sbin/ansible-local-switch --help; return 2 ;;
+      --*) command /usr/local/bin/ansible-local-switch --help; return 2 ;;
       *)
         if [[ -n "$_ansible_runtime" ]]; then
           echo "Only one runtime may be specified." >&2
-          command /usr/local/sbin/ansible-local-switch --help >&2
+          command /usr/local/bin/ansible-local-switch --help >&2
           return 2
         fi
         _ansible_runtime="$_arg"
@@ -89,7 +93,7 @@ ansible-local-switch() {
   done
 
   if [[ -z "$_ansible_runtime" ]]; then
-    command /usr/local/sbin/ansible-local-switch --help >&2
+    command /usr/local/bin/ansible-local-switch --help >&2
     return 2
   fi
   case "$_ansible_runtime" in
@@ -104,9 +108,9 @@ ansible-local-switch() {
   if [[ "$_ansible_permanent" -eq 1 ]]; then
     local _ansible_switch_status=0
     if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-      command /usr/local/sbin/ansible-local-switch --permanent "$_ansible_runtime" || _ansible_switch_status=$?
+      command /usr/local/bin/ansible-local-switch --permanent "$_ansible_runtime" || _ansible_switch_status=$?
     else
-      sudo /usr/local/sbin/ansible-local-switch --permanent "$_ansible_runtime" || _ansible_switch_status=$?
+      sudo /usr/local/bin/ansible-local-switch --permanent "$_ansible_runtime" || _ansible_switch_status=$?
     fi
     [[ "$_ansible_switch_status" -eq 0 ]] || return "$_ansible_switch_status"
     unset PYTHON_VERSION ANSIBLE_VERSION ANSIBLE_CORE_VERSION ANSIBLE_RUNTIME ANSIBLE_VENV_PATH VIRTUAL_ENV

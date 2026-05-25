@@ -1,8 +1,16 @@
-# Ansible Installer
+# ansible.installer
 
-uv-based local Ansible control-node installer for Rocky/RHEL-like systems.
+Small installer for a local Ansible control-node runtime on Rocky, RHEL, AlmaLinux and compatible systems.
 
-## One-liner
+It installs Ansible into `/opt/ansible` using `uv`, keeps runtimes versioned under `/opt/ansible/apps`, and exposes the active runtime through `/opt/ansible/current`.
+
+## Quick install
+
+Preferred short URL:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo sh
+```
 
 Canonical GitHub URL:
 
@@ -10,99 +18,161 @@ Canonical GitHub URL:
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
 ```
 
-Bitbull DNS alias:
-
-```bash
-curl -L ansible-uv.bitbull.ch | sudo sh
-```
-
-When already running as root, for example in a fresh lab VM root shell:
+If you are already root:
 
 ```bash
 curl -L ansible-uv.bitbull.ch | sh
 ```
 
-The DNS alias points to the same installer script for a shorter copy/paste command. The installer pulls payload files from this repository only. Runtime support files are structured by their target paths under `ansible/files/`, for example `etc/profile.d/ansible.sh`, `usr/local/bin/ansible-local-switch`, and `usr/local/bin/adoc`.
+## What it installs
+
+- `/opt/ansible`: shared Ansible workspace, owned `root:ansible`, mode `0750`
+- `/opt/ansible/apps/<python>_<ansible>`: one uv-managed runtime per version pair
+- `/opt/ansible/current`: symlink to the active runtime
+- `/opt/ansible/ansible.cfg`: minimal config, created only when missing
+- `/opt/ansible/inventory/localhost`: localhost seed inventory, created only when missing
+- `/etc/profile.d/ansible.sh`: shell integration and runtime switch function
+- `/usr/local/bin/ansible-local-switch`: persistent runtime switch helper, `root:ansible`, mode `0750`
+- `/usr/local/bin/adoc`: `ansible-doc` convenience helper
+- `/etc/ansible -> /opt/ansible`: compatibility symlink when `/etc/ansible` does not exist
+
+Payload files are stored in this repository under `ansible/files/` using their target path, for example `ansible/files/usr/local/bin/adoc`.
 
 ## Defaults
 
 - `PYTHON_VERSION=3.12`
 - `ANSIBLE_VERSION=13.4.0`
 - `ANSIBLE_HOME=/opt/ansible`
-- runtime path: `/opt/ansible/apps/${PYTHON_VERSION}_${ANSIBLE_VERSION}`
-- active runtime: `/opt/ansible/current`
+- `ANSIBLE_RUNTIME=${PYTHON_VERSION}_${ANSIBLE_VERSION}`
+- `ANSIBLE_VENV_PATH=${ANSIBLE_HOME}/apps/${ANSIBLE_RUNTIME}`
+- `ANSIBLE_LOCAL_TEMP=${HOME}/.ansible/tmp`
+- `ANSIBLE_LOG_PATH=${HOME}/.ansible/ansible.log`
+- `RAW_BASE=https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main`
+- `UV_BIN`: auto-detected from `/usr/local/bin/uv`, `/usr/bin/uv`, or `$HOME/.local/bin/uv`; installed to `/usr/local/bin/uv` when missing
 
-`ANSIBLE_CORE_VERSION` is accepted as a legacy input alias, but the installer installs the Ansible community package (`ansible==${ANSIBLE_VERSION}`), not `ansible-core==13.x`.
+`ANSIBLE_CORE_VERSION` is still accepted as a legacy input alias. The installer still installs the Ansible community package (`ansible==${ANSIBLE_VERSION}`), not an `ansible-core==13.x` package. Yes, naming is a trap. We step around it.
 
-## Existing Ansible installations
+## Variable examples
 
-The installer refuses to continue when it detects a foreign Ansible installation, because mixing installers usually creates confusing `PATH`, Python package, and config state. It prints the detected reason and exits before changing the host.
-
-Detected foreign sources include:
-
-- RPM packages such as `ansible` or `ansible-core`
-- pip packages such as `ansible` or `ansible-core`
-- an existing `ansible` command outside `/opt/ansible`
-- legacy `/etc/profile.d/ansible.sh` files without the ansible-uv marker, including old `ansible.bitbull.ch` style installs
-- existing non-symlink `/etc/ansible` directories not marked as ansible-uv managed
-
-If the host is already managed by this installer, rerunning the installer is safe. It reuses the existing uv runtime when present and runs `uv pip install --upgrade` for the requested Ansible version and `argcomplete`.
-
-## Examples
-
-Install default runtime via GitHub:
+Install a specific Ansible version:
 
 ```bash
-curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
+curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_VERSION=11.3.0 sh
 ```
 
-Install default runtime via Bitbull DNS alias:
+Install a specific Python and Ansible version:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo sh
+curl -L ansible-uv.bitbull.ch | sudo env PYTHON_VERSION=3.12 ANSIBLE_VERSION=11.3.0 sh
 ```
 
-Install a second runtime with explicit Python and Ansible versions:
+Use the legacy variable name from older notes:
 
 ```bash
-curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo env PYTHON_VERSION=3.12 ANSIBLE_VERSION=11.3.0 sh
+curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_CORE_VERSION=11.3.0 sh
 ```
 
-`PYTHON_VERSION` is optional because it defaults to `3.12`, but it is supported as an installer input and should be provided when documenting/reproducing a specific runtime.
+Use an explicit runtime name:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_RUNTIME=3.12_13.4.0 sh
+```
+
+Use a non-default home path:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_HOME=/srv/ansible sh
+```
+
+Use a fully explicit runtime path:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_VENV_PATH=/opt/ansible/apps/3.12_13.4.0 sh
+```
+
+Use specific per-user temp and log paths for Ansible:
+
+```bash
+export ANSIBLE_LOCAL_TEMP=$HOME/.ansible/tmp
+export ANSIBLE_LOG_PATH=$HOME/.ansible/ansible.log
+source /etc/profile.d/ansible.sh
+```
+
+Test local payload files while developing:
+
+```bash
+sudo RAW_BASE=file:///tmp/ansible.installer sh /tmp/ansible.installer/ansible/ansible_setup.sh
+```
+
+Use an existing `uv` binary:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo env UV_BIN=/usr/local/bin/uv sh
+```
+
+## Existing Ansible installs
+
+The installer stops before changing the host when it detects another Ansible installation method. Mixing RPM, pip, old `ansible.bitbull.ch` installs and this uv layout makes `PATH`, Python packages and config files annoying fast. So the installer refuses and tells you what it found.
+
+Detected foreign installs:
+
+- RPM packages: `ansible`, `ansible-core`
+- pip packages: `ansible`, `ansible-core`
+- an `ansible` command outside `/opt/ansible`
+- `/etc/profile.d/ansible.sh` without the ansible-uv marker
+- a non-symlink `/etc/ansible` directory when the host is not marked as ansible-uv managed
+
+Rerunning this installer on an ansible-uv managed host is supported. It reuses the runtime when present and runs an upgrade install for the requested Ansible version and `argcomplete`.
+
+## Runtime switching
+
+Load the shell integration first:
+
+```bash
+source /etc/profile.d/ansible.sh
+```
+
+List installed runtimes:
+
+```bash
+ansible-local-switch --list
+```
 
 Switch only the current shell:
 
 ```bash
-source /etc/profile.d/ansible.sh
 ansible-local-switch 3.12_11.3.0
 ```
 
 Switch the permanent default:
 
 ```bash
-source /etc/profile.d/ansible.sh
 ansible-local-switch --permanent 3.12_13.4.0
 ```
 
-## Installed layout
+The session-only switch is a shell function from `/etc/profile.d/ansible.sh`. The permanent switch is handled by `/usr/local/bin/ansible-local-switch` and updates `/opt/ansible/current` plus the profile defaults.
 
-- `/opt/ansible`: shared workspace
-- `/opt/ansible/apps/<python>_<ansible>`: uv-managed runtime
-- `/opt/ansible/current`: symlink to active runtime
-- `/opt/ansible/inventory`: inventory directory with localhost seed
-- `/opt/ansible/logs`: log directory
-- `/opt/ansible/playbooks`: playbook directory
-- `/opt/ansible/projects`: project directory
-- `/opt/ansible/roles`: role directory
-- `/opt/ansible/ansible.cfg`: minimal config, created only if absent
-- `/etc/profile.d/ansible.sh`: shell activation and runtime switch function
-- `/usr/local/bin/ansible-local-switch`: privileged persistent switch helper, `root:ansible`, mode `0750`
-- `/usr/local/bin/adoc`: ansible-doc convenience helper
-- `/etc/ansible -> /opt/ansible`: compatibility symlink
+## User overrides
 
-`/opt/ansible` and its managed contents are owned by `root:ansible` and normalised to mode `0750`.
+Users may place overrides in:
+
+```text
+$HOME/.ansible.sh
+```
+
+Typical example:
+
+```bash
+export ANSIBLE_HOME=/opt/ansible
+export PYTHON_VERSION=3.12
+export ANSIBLE_VERSION=13.4.0
+```
+
+If `$HOME/.ansible.sh` sets `ANSIBLE_VENV_PATH`, the profile script keeps that explicit path. Otherwise it derives the path from `ANSIBLE_HOME`, `PYTHON_VERSION` and `ANSIBLE_VERSION`.
 
 ## Validation
+
+After install:
 
 ```bash
 source /etc/profile.d/ansible.sh
@@ -110,4 +180,37 @@ ansible --version
 ansible localhost -m ping
 ansible-local-switch --list
 adoc copy | sed -n '1,12p'
+```
+
+Check ownership and modes:
+
+```bash
+stat -c '%U:%G %a %n' /usr/local/bin/ansible-local-switch /opt/ansible /opt/ansible/apps
+```
+
+Expected shape:
+
+```text
+root:ansible 750 /usr/local/bin/ansible-local-switch
+root:ansible 750 /opt/ansible
+root:ansible 750 /opt/ansible/apps
+```
+
+## Repository layout
+
+- `ansible/ansible_setup.sh`: installer entrypoint
+- `ansible/files/etc/profile.d/ansible.sh`: profile script installed to `/etc/profile.d/ansible.sh`
+- `ansible/files/usr/local/bin/ansible-local-switch`: persistent runtime switch helper
+- `ansible/files/usr/local/bin/adoc`: `ansible-doc` helper
+- `tests/test_installer_static.py`: static checks for paths, markers, ownership intent and documentation
+
+## Development checks
+
+```bash
+pytest tests/test_installer_static.py -q
+sh -n ansible/ansible_setup.sh
+bash -n ansible/files/etc/profile.d/ansible.sh
+bash -n ansible/files/usr/local/bin/ansible-local-switch
+bash -n ansible/files/usr/local/bin/adoc
+git diff --check
 ```
