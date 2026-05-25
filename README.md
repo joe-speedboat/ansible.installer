@@ -4,11 +4,25 @@ uv-based local Ansible control-node installer for Rocky/RHEL-like systems.
 
 ## One-liner
 
+Canonical GitHub URL:
+
 ```bash
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
 ```
 
-The installer pulls payload files from this repository only. The `adoc` helper is vendored under `ansible/files/adoc` and installed as `/usr/local/bin/adoc`.
+Bitbull DNS alias:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo sh
+```
+
+When already running as root, for example in a fresh lab VM root shell:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sh
+```
+
+The DNS alias points to the same installer script for a shorter copy/paste command. The installer pulls payload files from this repository only. The `adoc` helper is vendored under `ansible/files/adoc` and installed as `/usr/local/bin/adoc`.
 
 ## Defaults
 
@@ -22,17 +36,25 @@ The installer pulls payload files from this repository only. The `adoc` helper i
 
 ## Examples
 
-Install default runtime:
+Install default runtime via GitHub:
 
 ```bash
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
 ```
 
-Install a second runtime:
+Install default runtime via Bitbull DNS alias:
 
 ```bash
-curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo env ANSIBLE_VERSION=11.3.0 sh
+curl -L ansible-uv.bitbull.ch | sudo sh
 ```
+
+Install a second runtime with explicit Python and Ansible versions:
+
+```bash
+curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo env PYTHON_VERSION=3.12 ANSIBLE_VERSION=11.3.0 sh
+```
+
+`PYTHON_VERSION` is optional because it defaults to `3.12`, but it is supported as an installer input and should be provided when documenting/reproducing a specific runtime.
 
 Switch only the current shell:
 
