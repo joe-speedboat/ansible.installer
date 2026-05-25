@@ -22,7 +22,7 @@ When already running as root, for example in a fresh lab VM root shell:
 curl -L ansible-uv.bitbull.ch | sh
 ```
 
-The DNS alias points to the same installer script for a shorter copy/paste command. The installer pulls payload files from this repository only. Runtime support files are structured by their target paths under `ansible/files/`, for example `etc/profile.d/ansible.sh`, `usr/local/sbin/ansible-local-switch`, and `usr/local/bin/adoc`.
+The DNS alias points to the same installer script for a shorter copy/paste command. The installer pulls payload files from this repository only. Runtime support files are structured by their target paths under `ansible/files/`, for example `etc/profile.d/ansible.sh`, `usr/local/bin/ansible-local-switch`, and `usr/local/bin/adoc`.
 
 ## Defaults
 
@@ -96,10 +96,11 @@ ansible-local-switch --permanent 3.12_13.4.0
 - `/opt/ansible/roles`: role directory
 - `/opt/ansible/ansible.cfg`: minimal config, created only if absent
 - `/etc/profile.d/ansible.sh`: shell activation and runtime switch function
-- `/usr/local/sbin/ansible-local-switch`: privileged persistent switch helper
-- `/usr/local/bin/ansible-local-switch`: PATH symlink
+- `/usr/local/bin/ansible-local-switch`: privileged persistent switch helper, `root:ansible`, mode `0750`
 - `/usr/local/bin/adoc`: ansible-doc convenience helper
 - `/etc/ansible -> /opt/ansible`: compatibility symlink
+
+`/opt/ansible` and its managed contents are owned by `root:ansible` and normalised to mode `0750`.
 
 ## Validation
 
