@@ -22,7 +22,7 @@ When already running as root, for example in a fresh lab VM root shell:
 curl -L ansible-uv.bitbull.ch | sh
 ```
 
-The DNS alias points to the same installer script for a shorter copy/paste command. The installer pulls payload files from this repository only. The `adoc` helper is vendored under `ansible/files/adoc` and installed as `/usr/local/bin/adoc`.
+The DNS alias points to the same installer script for a shorter copy/paste command. The installer pulls payload files from this repository only. Runtime support files are structured by their target paths under `ansible/files/`, for example `etc/profile.d/ansible.sh`, `usr/local/sbin/ansible-local-switch`, and `usr/local/bin/adoc`.
 
 ## Defaults
 
@@ -33,6 +33,20 @@ The DNS alias points to the same installer script for a shorter copy/paste comma
 - active runtime: `/opt/ansible/current`
 
 `ANSIBLE_CORE_VERSION` is accepted as a legacy input alias, but the installer installs the Ansible community package (`ansible==${ANSIBLE_VERSION}`), not `ansible-core==13.x`.
+
+## Existing Ansible installations
+
+The installer refuses to continue when it detects a foreign Ansible installation, because mixing installers usually creates confusing `PATH`, Python package, and config state. It prints the detected reason and exits before changing the host.
+
+Detected foreign sources include:
+
+- RPM packages such as `ansible` or `ansible-core`
+- pip packages such as `ansible` or `ansible-core`
+- an existing `ansible` command outside `/opt/ansible`
+- legacy `/etc/profile.d/ansible.sh` files without the ansible-uv marker, including old `ansible.bitbull.ch` style installs
+- existing non-symlink `/etc/ansible` directories not marked as ansible-uv managed
+
+If the host is already managed by this installer, rerunning the installer is safe. It reuses the existing uv runtime when present and runs `uv pip install --upgrade` for the requested Ansible version and `argcomplete`.
 
 ## Examples
 
