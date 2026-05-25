@@ -4,7 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SETUP = ROOT / "ansible" / "ansible_setup.sh"
 ADOC = ROOT / "ansible" / "files" / "usr" / "local" / "bin" / "adoc"
 PROFILE = ROOT / "ansible" / "files" / "etc" / "profile.d" / "ansible.sh"
-SWITCH = ROOT / "ansible" / "files" / "usr" / "local" / "sbin" / "ansible-local-switch"
+SWITCH = ROOT / "ansible" / "files" / "usr" / "local" / "bin" / "ansible-local-switch"
 README = ROOT / "README.md"
 
 
@@ -12,7 +12,7 @@ def test_installer_files_exist():
     assert SETUP.exists(), "ansible/ansible_setup.sh must exist for curl | sh one-liner"
     assert ADOC.exists(), "adoc must be vendored under ansible/files/usr/local/bin"
     assert PROFILE.exists(), "profile script must be outsourced under ansible/files/etc/profile.d"
-    assert SWITCH.exists(), "switch helper must be outsourced under ansible/files/usr/local/sbin"
+    assert SWITCH.exists(), "switch helper must be outsourced under ansible/files/usr/local/bin"
 
 
 def test_one_liner_documented():
@@ -27,7 +27,23 @@ def test_installer_uses_single_repo_for_payload_files():
     assert "linux.scripts" not in text, "payload files must come from ansible.installer, not another repo"
     assert "ansible/files/usr/local/bin/adoc" in text
     assert "ansible/files/etc/profile.d/ansible.sh" in text
-    assert "ansible/files/usr/local/sbin/ansible-local-switch" in text
+    assert "ansible/files/usr/local/bin/ansible-local-switch" in text
+    assert "ansible/files/usr/local/sbin/ansible-local-switch" not in text
+
+
+def test_switch_helper_installs_to_bin_with_requested_owner_and_mode():
+    text = SETUP.read_text()
+    assert 'install_repo_file "ansible/files/usr/local/bin/ansible-local-switch" /usr/local/bin/ansible-local-switch 0750 root:ansible' in text
+    assert "ln -sfn /usr/local/sbin/ansible-local-switch /usr/local/bin/ansible-local-switch" not in text
+    assert 'rm -f /usr/local/sbin/ansible-local-switch' in text
+
+
+def test_opt_ansible_tree_is_root_ansible_and_750():
+    text = SETUP.read_text()
+    assert 'chown -R root:ansible "$ANSIBLE_HOME"' in text
+    assert 'find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +' in text
+    assert 'find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +' in text
+    assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +' in text
 
 
 def test_installer_contains_target_architecture_markers():

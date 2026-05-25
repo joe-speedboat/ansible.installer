@@ -13,7 +13,7 @@ ANSIBLE_RUNTIME="${ANSIBLE_RUNTIME:-${PYTHON_VERSION}_${ANSIBLE_VERSION}}"
 ANSIBLE_VENV_PATH="${ANSIBLE_VENV_PATH:-${ANSIBLE_HOME}/apps/${ANSIBLE_RUNTIME}}"
 ANSIBLE_UV_MARKER="${ANSIBLE_HOME}/.ansible-uv-installer"
 # Default concrete layout: /opt/ansible/apps/<runtime>, /opt/ansible/current,
-# /etc/profile.d/ansible.sh, /etc/ansible, ansible-local-switch, adoc.
+# /etc/profile.d/ansible.sh, /etc/ansible, /usr/local/bin/ansible-local-switch, adoc.
 # Package install pattern: uv pip install --python /opt/ansible/apps/<runtime>/bin/python ansible==${ANSIBLE_VERSION} argcomplete.
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main}"
 UV_BIN="${UV_BIN:-}"
@@ -23,7 +23,7 @@ fail() { printf '[ansible-installer] ERROR: %s\n' "$*" >&2; exit 1; }
 
 is_ansible_uv_installation() {
   [ -f "$ANSIBLE_UV_MARKER" ] && return 0
-  [ -d "$ANSIBLE_HOME/apps" ] && [ -x /usr/local/sbin/ansible-local-switch ] && return 0
+  [ -d "$ANSIBLE_HOME/apps" ] && [ -x /usr/local/bin/ansible-local-switch ] && return 0
   [ -r /etc/profile.d/ansible.sh ] && grep -q 'ANSIBLE_UV_INSTALLER=1' /etc/profile.d/ansible.sh && return 0
   return 1
 }
@@ -138,7 +138,7 @@ if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ] && id "${SUDO_USER}" 
   log "Adding ${SUDO_USER} to ansible group"
   usermod -aG ansible "${SUDO_USER}"
 fi
-install -d -o root -g ansible -m 2770 \
+install -d -o root -g ansible -m 0750 \
   "$ANSIBLE_HOME" \
   "$ANSIBLE_HOME/apps" \
   "$ANSIBLE_HOME/inventory" \
@@ -195,8 +195,8 @@ sed -i \
   /etc/profile.d/ansible.sh
 
 log "Installing ansible-local-switch from repository"
-install_repo_file "ansible/files/usr/local/sbin/ansible-local-switch" /usr/local/sbin/ansible-local-switch 0750 root:ansible
-ln -sfn /usr/local/sbin/ansible-local-switch /usr/local/bin/ansible-local-switch
+install_repo_file "ansible/files/usr/local/bin/ansible-local-switch" /usr/local/bin/ansible-local-switch 0750 root:ansible
+rm -f /usr/local/sbin/ansible-local-switch
 
 log "Installing adoc helper from this repository"
 install_repo_file "ansible/files/usr/local/bin/adoc" /usr/local/bin/adoc 0755 root:root
@@ -222,8 +222,9 @@ EOF_MARKER
 
 log "Applying ownership and permissions"
 chown -R root:ansible "$ANSIBLE_HOME"
-chmod -R ug+rwX,o-rwx "$ANSIBLE_HOME"
-find "$ANSIBLE_HOME" -type d -exec chmod g+s {} +
+find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +
+find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +
+find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +
 
 log "Done. Active runtime: $ANSIBLE_RUNTIME"
 "$ANSIBLE_VENV_PATH/bin/ansible" --version | sed -n '1,8p'
