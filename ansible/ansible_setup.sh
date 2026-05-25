@@ -187,28 +187,37 @@ if [ ! -e "$ANSIBLE_HOME/inventory/localhost" ]; then
 fi
 
 log "Installing /etc/profile.d/ansible.sh from repository"
-install_repo_file "ansible/files/etc/profile.d/ansible.sh" /etc/profile.d/ansible.sh 0644 root:root
+install_repo_file "ansible/files/etc/profile.d/ansible.sh" /etc/profile.d/ansible.sh 0750 root:ansible
 # Render install-time defaults into the profile template.
 sed -i \
   -e "s|@PYTHON_VERSION@|${PYTHON_VERSION}|g" \
   -e "s|@ANSIBLE_VERSION@|${ANSIBLE_VERSION}|g" \
   /etc/profile.d/ansible.sh
+chown root:ansible /etc/profile.d/ansible.sh
+chmod 0750 /etc/profile.d/ansible.sh
 
 log "Installing ansible-local-switch from repository"
 install_repo_file "ansible/files/usr/local/bin/ansible-local-switch" /usr/local/bin/ansible-local-switch 0750 root:ansible
 rm -f /usr/local/sbin/ansible-local-switch
 
 log "Installing adoc helper from this repository"
-install_repo_file "ansible/files/usr/local/bin/adoc" /usr/local/bin/adoc 0755 root:root
+install_repo_file "ansible/files/usr/local/bin/adoc" /usr/local/bin/adoc 0750 root:ansible
 
 if [ -d /etc/bash_completion.d ]; then
   log "Installing argcomplete hook"
+  install -o root -g ansible -m 0640 /dev/null /etc/bash_completion.d/ansible
   "$ANSIBLE_VENV_PATH/bin/register-python-argcomplete" ansible > /etc/bash_completion.d/ansible || true
+  chown root:ansible /etc/bash_completion.d/ansible
+  chmod 0640 /etc/bash_completion.d/ansible
 fi
 
 if [ ! -e /etc/ansible ]; then
   ln -s "$ANSIBLE_HOME" /etc/ansible
 fi
+if [ -L /etc/ansible ]; then
+  chown -h root:ansible /etc/ansible
+fi
+chmod 0750 /usr/local/bin/ansible-local-switch /usr/local/bin/adoc /etc/profile.d/ansible.sh
 
 log "Marking installation as ansible-uv managed"
 cat > "$ANSIBLE_UV_MARKER" <<EOF_MARKER
@@ -222,6 +231,7 @@ EOF_MARKER
 
 log "Applying ownership and permissions"
 chown -R root:ansible "$ANSIBLE_HOME"
+find "$ANSIBLE_HOME" -type l -exec chown -h root:ansible {} +
 find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +
 find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +
 find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +

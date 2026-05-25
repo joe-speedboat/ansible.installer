@@ -31,10 +31,11 @@ curl -L ansible-uv.bitbull.ch | sh
 - `/opt/ansible/current`: symlink to the active runtime
 - `/opt/ansible/ansible.cfg`: minimal config, created only when missing
 - `/opt/ansible/inventory/localhost`: localhost seed inventory, created only when missing
-- `/etc/profile.d/ansible.sh`: shell integration and runtime switch function
+- `/etc/profile.d/ansible.sh`: shell integration and runtime switch function, `root:ansible`, mode `0750`
 - `/usr/local/bin/ansible-local-switch`: persistent runtime switch helper, `root:ansible`, mode `0750`
-- `/usr/local/bin/adoc`: `ansible-doc` convenience helper
-- `/etc/ansible -> /opt/ansible`: compatibility symlink when `/etc/ansible` does not exist
+- `/usr/local/bin/adoc`: `ansible-doc` convenience helper, `root:ansible`, mode `0750`
+- `/etc/bash_completion.d/ansible`: argcomplete hook, `root:ansible`, mode `0640`
+- `/etc/ansible -> /opt/ansible`: compatibility symlink when `/etc/ansible` does not exist; symlink owner/group is set to `root:ansible`
 
 Payload files are stored in this repository under `ansible/files/` using their target path, for example `ansible/files/usr/local/bin/adoc`.
 
@@ -185,15 +186,20 @@ adoc copy | sed -n '1,12p'
 Check ownership and modes:
 
 ```bash
-stat -c '%U:%G %a %n' /usr/local/bin/ansible-local-switch /opt/ansible /opt/ansible/apps
+stat -c '%U:%G %a %n' /usr/local/bin/ansible-local-switch /usr/local/bin/adoc /etc/profile.d/ansible.sh /etc/bash_completion.d/ansible /opt/ansible /opt/ansible/apps
+find /opt/ansible -xdev ! -type l \( -not -group ansible -o -perm /007 \) -print
 ```
 
 Expected shape:
 
 ```text
 root:ansible 750 /usr/local/bin/ansible-local-switch
+root:ansible 750 /usr/local/bin/adoc
+root:ansible 750 /etc/profile.d/ansible.sh
+root:ansible 640 /etc/bash_completion.d/ansible
 root:ansible 750 /opt/ansible
 root:ansible 750 /opt/ansible/apps
+# find command prints nothing for real files/directories; symlink mode bits are ignored by Linux permission checks
 ```
 
 ## Repository layout
