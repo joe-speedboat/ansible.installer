@@ -6,13 +6,13 @@ It installs Ansible into `/opt/ansible` using `uv`, keeps runtimes versioned und
 
 ## Quick install
 
-Preferred short URL:
+Canonical short URL:
 
 ```bash
 curl -L ansible-uv.bitbull.ch | sudo sh
 ```
 
-Canonical GitHub URL:
+GitHub URL:
 
 ```bash
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
@@ -55,22 +55,10 @@ Payload files are stored in this repository under `ansible/files/` using their t
 
 ## Variable examples
 
-Install a specific Ansible version:
-
-```bash
-curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_VERSION=11.3.0 sh
-```
-
 Install a specific Python and Ansible version:
 
 ```bash
 curl -L ansible-uv.bitbull.ch | sudo env PYTHON_VERSION=3.12 ANSIBLE_VERSION=11.3.0 sh
-```
-
-Use the legacy variable name from older notes:
-
-```bash
-curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_CORE_VERSION=11.3.0 sh
 ```
 
 Use an explicit runtime name:
@@ -83,12 +71,6 @@ Use a non-default home path:
 
 ```bash
 curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_HOME=/srv/ansible sh
-```
-
-Use a fully explicit runtime path:
-
-```bash
-curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_VENV_PATH=/opt/ansible/apps/3.12_13.4.0 sh
 ```
 
 Use specific per-user temp and log paths for Ansible:
