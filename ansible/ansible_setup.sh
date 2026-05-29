@@ -280,6 +280,52 @@ render_profile_defaults() {
     "$ANSIBLE_PROFILE_PATH"
 }
 
+install_user_shell_activation() {
+  [ "$SCOPE" = "user" ] || return 0
+
+  ANSIBLE_UV_BASHRC_MARKER_BEGIN="# >>> ansible-uv user activation >>>"
+  ANSIBLE_UV_BASHRC_MARKER_END="# <<< ansible-uv user activation <<<"
+  bashrc_path="${INSTALL_HOME}/.bashrc"
+  tmp_bashrc="$(mktemp "${INSTALL_HOME}/.bashrc.ansible-uv.XXXXXX")"
+
+  log "Installing userspace shell activation to $bashrc_path"
+  if [ -f "$bashrc_path" ]; then
+    awk -v begin="$ANSIBLE_UV_BASHRC_MARKER_BEGIN" -v end="$ANSIBLE_UV_BASHRC_MARKER_END" '
+      $0 == begin { skip = 1; next }
+      $0 == end { skip = 0; next }
+      skip != 1 { print }
+    ' "$bashrc_path" > "$tmp_bashrc"
+  else
+    : > "$tmp_bashrc"
+  fi
+
+  cat >> "$tmp_bashrc" <<EOF_BASHRC
+
+$ANSIBLE_UV_BASHRC_MARKER_BEGIN
+# Managed by joe-speedboat/ansible.installer. Re-run the installer to update.
+ANSIBLE_HOME="$ANSIBLE_HOME"
+ANSIBLE_BIN_DIR="$ANSIBLE_BIN_DIR"
+ANSIBLE_PROFILE_PATH="$ANSIBLE_PROFILE_PATH"
+ANSIBLE_SWITCH_BIN="$ANSIBLE_SWITCH_BIN"
+export ANSIBLE_HOME ANSIBLE_BIN_DIR ANSIBLE_PROFILE_PATH ANSIBLE_SWITCH_BIN
+unset PYTHON_VERSION ANSIBLE_VERSION ANSIBLE_CORE_VERSION ANSIBLE_RUNTIME ANSIBLE_VENV_PATH VIRTUAL_ENV ANSIBLE_CONFIG
+if [ -r "\$ANSIBLE_PROFILE_PATH" ]; then
+  source "\$ANSIBLE_PROFILE_PATH"
+fi
+$ANSIBLE_UV_BASHRC_MARKER_END
+EOF_BASHRC
+
+  if [ "$(id -u)" -eq 0 ]; then
+    chown "$(owner_group)" "$tmp_bashrc"
+  fi
+  chmod 0640 "$tmp_bashrc"
+  mv -f "$tmp_bashrc" "${INSTALL_HOME}/.bashrc"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown "$(owner_group)" "${INSTALL_HOME}/.bashrc"
+  fi
+  chmod 0640 "${INSTALL_HOME}/.bashrc"
+}
+
 install_uv_fallback_with_python() {
   dest_dir="$1"
   command -v python3 >/dev/null 2>&1 || fail "python3 is required to install uv without tar"
@@ -441,6 +487,8 @@ if [ "$SCOPE" = "system" ]; then rm -f /usr/local/sbin/ansible-local-switch; fi
 
 log "Installing adoc helper to $ANSIBLE_ADOC_BIN"
 install_repo_file "ansible/files/usr/local/bin/adoc" "$ANSIBLE_ADOC_BIN" 0750
+
+install_user_shell_activation
 
 if [ "$ANSIBLE_LINK_ETC" = "1" ]; then
   [ "$(id -u)" -eq 0 ] || fail "ANSIBLE_LINK_ETC=1 requires root"

@@ -204,6 +204,23 @@ def test_user_scope_allows_existing_system_ansible_uv_installation_in_path():
     assert '[ "$SCOPE" = "user" ] && return 0' in text
 
 
+def test_user_scope_installs_idempotent_bashrc_activation():
+    text = SETUP.read_text()
+    readme_text = README.read_text()
+    assert 'install_user_shell_activation' in text
+    assert '[ "$SCOPE" = "user" ] || return 0' in text
+    assert 'ANSIBLE_UV_BASHRC_MARKER_BEGIN="# >>> ansible-uv user activation >>>"' in text
+    assert 'source "\\$ANSIBLE_PROFILE_PATH"' in text
+    assert 'export ANSIBLE_HOME ANSIBLE_BIN_DIR ANSIBLE_PROFILE_PATH ANSIBLE_SWITCH_BIN' in text
+    assert 'unset PYTHON_VERSION ANSIBLE_VERSION ANSIBLE_CORE_VERSION ANSIBLE_RUNTIME ANSIBLE_VENV_PATH VIRTUAL_ENV ANSIBLE_CONFIG' in text
+    assert 'mktemp "${INSTALL_HOME}/.bashrc.ansible-uv.XXXXXX"' in text
+    assert 'mv -f "$tmp_bashrc" "${INSTALL_HOME}/.bashrc"' in text
+    assert 'chown "$(owner_group)" "${INSTALL_HOME}/.bashrc"' in text
+    assert 'chmod 0640 "${INSTALL_HOME}/.bashrc"' in text
+    assert 'install_user_shell_activation' in readme_text
+    assert 'userspace profile wins over the system profile' in readme_text
+
+
 def test_profile_and_switch_are_path_parameterized_for_userspace():
     profile_text = PROFILE.read_text()
     switch_text = SWITCH.read_text()
