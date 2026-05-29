@@ -2,11 +2,11 @@
 
 Small installer for a local Ansible control-node runtime on Rocky, RHEL, AlmaLinux and compatible systems.
 
-It installs Ansible into `/opt/ansible` using `uv`, keeps runtimes versioned under `/opt/ansible/apps`, and exposes the active runtime through `/opt/ansible/current`.
+It installs Ansible with `uv`, keeps runtimes versioned under `apps/<python>_<ansible>`, and exposes the active runtime through `current`.
 
 ## Quick install
 
-Canonical short URL:
+Canonical short URL, shared system install:
 
 ```bash
 curl -L ansible-uv.bitbull.ch | sudo sh
@@ -18,38 +18,104 @@ GitHub URL:
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
 ```
 
-If you are already root:
+Fully userspace-style install for a named user, with no `/etc` integration by default:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sh
+curl -L ansible-uv.bitbull.ch | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
 ```
 
-## What it installs
+Activate that install as the target user:
 
-- `/opt/ansible`: shared Ansible workspace, owned `root:ansible`, mode `0750`
+```bash
+sudo -iu devel bash -lc 'source /home/devel/ansible/apps/profile.d/ansible.sh && ansible --version'
+```
+
+If you are already the target user, userspace install also works without sudo:
+
+```bash
+curl -L ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME=$HOME/ansible sh
+```
+
+## Scopes
+
+### `SCOPE=system`
+
+This is the traditional shared layout. It is the default when the installer runs as root.
+
+Installed shape:
+
+- `/opt/ansible`: shared Ansible workspace, owned by the selected install user/group, mode `0750`
 - `/opt/ansible/apps/<python>_<ansible>`: one uv-managed runtime per version pair
 - `/opt/ansible/current`: symlink to the active runtime
-- `/opt/ansible/ansible.cfg`: minimal config, created only when missing
-- `/opt/ansible/inventory/localhost`: localhost seed inventory, created only when missing
-- `/etc/profile.d/ansible.sh`: shell integration and runtime switch function, `root:ansible`, mode `0750`
-- `/usr/local/bin/ansible-local-switch`: persistent runtime switch helper, `root:ansible`, mode `0750`
-- `/usr/local/bin/adoc`: `ansible-doc` convenience helper, `root:ansible`, mode `0750`
-- `/etc/bash_completion.d/ansible`: argcomplete hook, `root:ansible`, mode `0640`
-- `/etc/ansible -> /opt/ansible`: compatibility symlink when `/etc/ansible` does not exist; symlink owner/group is set to `root:ansible`
+- `/etc/profile.d/ansible.sh`: shell integration and runtime switch function
+- `/usr/local/bin/ansible-local-switch`: persistent runtime switch helper
+- `/usr/local/bin/adoc`: `ansible-doc` convenience helper
+- `/etc/bash_completion.d/ansible`: argcomplete hook
+- `/etc/ansible -> /opt/ansible`: compatibility symlink when `/etc/ansible` does not exist
 
-Payload files are stored in this repository under `ansible/files/` using their target path, for example `ansible/files/usr/local/bin/adoc`.
+### `SCOPE=user`
+
+This keeps the Ansible workspace normal-looking and moves installer-specific files under `apps/`. It is the default when the installer runs as a normal user.
+
+Example with `ANSIBLE_HOME=/home/devel/ansible`:
+
+```text
+/home/devel/ansible/
+├── ansible.cfg
+├── inventory/
+├── logs/
+├── playbooks/
+├── projects/
+├── roles/
+├── tmp/
+├── apps/
+│   ├── 3.12_13.4.0/
+│   ├── bin/
+│   │   ├── ansible-local-switch
+│   │   ├── adoc
+│   │   └── uv
+│   ├── profile.d/
+│   │   └── ansible.sh
+│   └── .ansible-uv-installer
+└── current -> apps/3.12_13.4.0
+```
+
+Userspace activation:
+
+```bash
+source /home/devel/ansible/apps/profile.d/ansible.sh
+```
+
+By default, `SCOPE=user` does not create or modify:
+
+- `/etc/profile.d/ansible.sh`
+- `/etc/ansible`
+- `/etc/bash_completion.d/ansible`
+- `/usr/local/bin/ansible-local-switch`
+- `/usr/local/bin/adoc`
+- `/opt/ansible`
+
+Set `ANSIBLE_LINK_ETC=1` only if you explicitly want `/etc` integration.
 
 ## Defaults
 
+- `SCOPE=system` when run as root; `SCOPE=user` when run as a normal user
+- `INSTALL_USER=${SUDO_USER}` when available, otherwise the current user
+- `INSTALL_GROUP=ansible` for `SCOPE=system`
+- `INSTALL_GROUP=${INSTALL_USER}` for `SCOPE=user`
 - `PYTHON_VERSION=3.12`
 - `ANSIBLE_VERSION=13.4.0`
-- `ANSIBLE_HOME=/opt/ansible`
-- `ANSIBLE_RUNTIME=${PYTHON_VERSION}_${ANSIBLE_VERSION}`
-- `ANSIBLE_VENV_PATH=${ANSIBLE_HOME}/apps/${ANSIBLE_RUNTIME}`
-- `ANSIBLE_LOCAL_TEMP=${HOME}/.ansible/tmp`
-- `ANSIBLE_LOG_PATH=${HOME}/.ansible/ansible.log`
+- `ANSIBLE_CORE_VERSION=` legacy alias input for `ANSIBLE_VERSION`
+- `ANSIBLE_HOME=/opt/ansible` for `SCOPE=system`
+- `ANSIBLE_HOME=/home/devel/ansible` as a typical userspace example
+- `ANSIBLE_RUNTIME=${PYTHON_VERSION}_${ANSIBLE_VERSION}`; example `ANSIBLE_RUNTIME=3.12_13.4.0`
+- `ANSIBLE_VENV_PATH=${ANSIBLE_HOME}/apps/${ANSIBLE_RUNTIME}`; example `ANSIBLE_VENV_PATH=/opt/ansible/apps/3.12_13.4.0`
+- `ANSIBLE_LOCAL_TEMP=$HOME/.ansible/tmp`
+- `ANSIBLE_LOG_PATH=$HOME/.ansible/ansible.log`
+- `ANSIBLE_LINK_ETC=1` for `SCOPE=system`
+- `ANSIBLE_LINK_ETC=0` for `SCOPE=user`
 - `RAW_BASE=https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main`
-- `UV_BIN`: auto-detected from `/usr/local/bin/uv`, `/usr/bin/uv`, or `$HOME/.local/bin/uv`; installed to `/usr/local/bin/uv` when missing
+- `UV_BIN=/usr/local/bin/uv` in the default system layout; userspace installs auto-place `uv` under `${ANSIBLE_HOME}/apps/bin/uv` when missing
 
 `ANSIBLE_CORE_VERSION` is still accepted as a legacy input alias. The installer still installs the Ansible community package (`ansible==${ANSIBLE_VERSION}`), not an `ansible-core==13.x` package. Yes, naming is a trap. We step around it.
 
@@ -67,10 +133,22 @@ Use an explicit runtime name:
 curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_RUNTIME=3.12_13.4.0 sh
 ```
 
-Use a non-default home path:
+Use a non-default system home path:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_HOME=/srv/ansible sh
+curl -L ansible-uv.bitbull.ch | sudo env SCOPE=system ANSIBLE_HOME=/srv/ansible sh
+```
+
+Use a named userspace target user and group:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+```
+
+Use userspace mode but also opt into `/etc` links:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible ANSIBLE_LINK_ETC=1 sh
 ```
 
 Use specific per-user temp and log paths for Ansible:
@@ -79,6 +157,12 @@ Use specific per-user temp and log paths for Ansible:
 export ANSIBLE_LOCAL_TEMP=$HOME/.ansible/tmp
 export ANSIBLE_LOG_PATH=$HOME/.ansible/ansible.log
 source /etc/profile.d/ansible.sh
+```
+
+For userspace installs, source the userspace profile instead:
+
+```bash
+source /home/devel/ansible/apps/profile.d/ansible.sh
 ```
 
 Test local payload files while developing:
@@ -97,22 +181,30 @@ curl -L ansible-uv.bitbull.ch | sudo env UV_BIN=/usr/local/bin/uv sh
 
 The installer stops before changing the host when it detects another Ansible installation method. Mixing RPM, pip, old `ansible.bitbull.ch` installs and this uv layout makes `PATH`, Python packages and config files annoying fast. So the installer refuses and tells you what it found.
 
-Detected foreign installs:
+Detected foreign installs in system mode:
 
 - RPM packages: `ansible`, `ansible-core`
 - pip packages: `ansible`, `ansible-core`
-- an `ansible` command outside `/opt/ansible`
-- `/etc/profile.d/ansible.sh` without the ansible-uv marker
-- a non-symlink `/etc/ansible` directory when the host is not marked as ansible-uv managed
+- an `ansible` command outside the selected ansible-uv tree
+- `/etc/profile.d/ansible.sh` without the ansible-uv marker when `/etc` integration is enabled
+- a non-symlink `/etc/ansible` directory when the host is not marked as ansible-uv managed and `/etc` integration is enabled
 
 Rerunning this installer on an ansible-uv managed host is supported. It reuses the runtime when present and runs an upgrade install for the requested Ansible version and `argcomplete`.
 
 ## Runtime switching
 
-Load the shell integration first:
+Load the shell integration first.
+
+System install:
 
 ```bash
 source /etc/profile.d/ansible.sh
+```
+
+Userspace install:
+
+```bash
+source /home/devel/ansible/apps/profile.d/ansible.sh
 ```
 
 List installed runtimes:
@@ -133,7 +225,7 @@ Switch the permanent default:
 ansible-local-switch --permanent 3.12_13.4.0
 ```
 
-The session-only switch is a shell function from `/etc/profile.d/ansible.sh`. The permanent switch is handled by `/usr/local/bin/ansible-local-switch` and updates `/opt/ansible/current` plus the profile defaults.
+The session-only switch is a shell function from the installed profile script. The permanent switch is handled by `ansible-local-switch` and updates `${ANSIBLE_HOME}/current` plus the profile defaults.
 
 ## User overrides
 
@@ -155,7 +247,7 @@ If `$HOME/.ansible.sh` sets `ANSIBLE_VENV_PATH`, the profile script keeps that e
 
 ## Validation
 
-After install:
+After system install:
 
 ```bash
 source /etc/profile.d/ansible.sh
@@ -165,6 +257,12 @@ ansible-local-switch --list
 adoc copy | sed -n '1,12p'
 ```
 
+After userspace install:
+
+```bash
+sudo -iu devel bash -lc 'source /home/devel/ansible/apps/profile.d/ansible.sh && ansible --version && ansible localhost -m ping && ansible-local-switch --list && adoc copy | sed -n "1,12p"'
+```
+
 Check ownership and modes:
 
 ```bash
@@ -172,25 +270,21 @@ stat -c '%U:%G %a %n' /usr/local/bin/ansible-local-switch /usr/local/bin/adoc /e
 find /opt/ansible -xdev ! -type l \( -not -group ansible -o -perm /007 \) -print
 ```
 
-Expected shape:
+Userspace check:
 
-```text
-root:ansible 750 /usr/local/bin/ansible-local-switch
-root:ansible 750 /usr/local/bin/adoc
-root:ansible 750 /etc/profile.d/ansible.sh
-root:ansible 640 /etc/bash_completion.d/ansible
-root:ansible 750 /opt/ansible
-root:ansible 750 /opt/ansible/apps
-# find command prints nothing for real files/directories; symlink mode bits are ignored by Linux permission checks
+```bash
+sudo -iu devel bash -lc 'stat -c "%U:%G %a %n" ~/ansible ~/ansible/apps ~/ansible/apps/profile.d/ansible.sh ~/ansible/apps/bin/ansible-local-switch ~/ansible/apps/bin/adoc'
 ```
 
 ## Repository layout
 
 - `ansible/ansible_setup.sh`: installer entrypoint
-- `ansible/files/etc/profile.d/ansible.sh`: profile script installed to `/etc/profile.d/ansible.sh`
-- `ansible/files/usr/local/bin/ansible-local-switch`: persistent runtime switch helper
+- `ansible/files/etc/profile.d/ansible.sh`: profile script template
+- `ansible/files/usr/local/bin/ansible-local-switch`: persistent runtime switch helper template
 - `ansible/files/usr/local/bin/adoc`: `ansible-doc` helper
 - `tests/test_installer_static.py`: static checks for paths, markers, ownership intent and documentation
+
+Payload files are stored in this repository under `ansible/files/` using their traditional system target path, for example `ansible/files/usr/local/bin/adoc`. Userspace mode installs the same payloads below `${ANSIBLE_HOME}/apps/`.
 
 ## Development checks
 
