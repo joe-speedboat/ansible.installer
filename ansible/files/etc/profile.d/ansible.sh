@@ -3,12 +3,38 @@
 ANSIBLE_UV_INSTALLER=1
 export ANSIBLE_UV_INSTALLER
 
-export ANSIBLE_HOME="${ANSIBLE_HOME:-/opt/ansible}"
+export ANSIBLE_HOME="${ANSIBLE_HOME:-@ANSIBLE_HOME@}"
+export ANSIBLE_BIN_DIR="${ANSIBLE_BIN_DIR:-@ANSIBLE_BIN_DIR@}"
+export ANSIBLE_PROFILE_PATH="${ANSIBLE_PROFILE_PATH:-@ANSIBLE_PROFILE_PATH@}"
+export ANSIBLE_SWITCH_BIN="${ANSIBLE_SWITCH_BIN:-@ANSIBLE_SWITCH_BIN@}"
 export PYTHON_VERSION="${PYTHON_VERSION:-@PYTHON_VERSION@}"
 export ANSIBLE_VERSION="${ANSIBLE_VERSION:-${ANSIBLE_CORE_VERSION:-@ANSIBLE_VERSION@}}"
 # Compatibility for older shells/scripts that still inspect ANSIBLE_CORE_VERSION.
 export ANSIBLE_CORE_VERSION="${ANSIBLE_CORE_VERSION:-${ANSIBLE_VERSION}}"
 export ANSIBLE_RUNTIME="${ANSIBLE_RUNTIME:-${PYTHON_VERSION}_${ANSIBLE_VERSION}}"
+
+# /etc/profile.d/*.sh may be sourced by POSIX sh. Keep non-Bash shells usable
+# with the active runtime, and reserve aliases/functions/runtime switching for Bash.
+if [ -z "${BASH_VERSION:-}" ]; then
+  ANSIBLE_VENV_PATH="${ANSIBLE_VENV_PATH:-${ANSIBLE_HOME}/apps/${ANSIBLE_RUNTIME}}"
+  export ANSIBLE_VENV_PATH
+  PATH="${ANSIBLE_BIN_DIR}:${ANSIBLE_VENV_PATH}/bin:${PATH}"
+  export PATH
+  VIRTUAL_ENV="$ANSIBLE_VENV_PATH"
+  export VIRTUAL_ENV
+  VIRTUAL_ENV_DISABLE_PROMPT=1
+  export VIRTUAL_ENV_DISABLE_PROMPT
+  ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-${ANSIBLE_HOME}/ansible.cfg}"
+  export ANSIBLE_CONFIG
+  ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"
+  export ANSIBLE_LOCAL_TEMP
+  mkdir -p "$ANSIBLE_LOCAL_TEMP" 2>/dev/null || true
+  ANSIBLE_LOG_PATH="${ANSIBLE_LOG_PATH:-${HOME}/.ansible/ansible.log}"
+  export ANSIBLE_LOG_PATH
+  mkdir -p "$(dirname "$ANSIBLE_LOG_PATH")" 2>/dev/null || true
+  umask 0007
+  return 0 2>/dev/null || exit 0
+fi
 
 _ansible_user_overrides_venv=0
 if [[ -r "$HOME/.ansible.sh" ]]; then
@@ -44,8 +70,10 @@ if [[ -n "${VIRTUAL_ENV:-}" ]]; then
   unset _ansible_new_path _ansible_path_part _ansible_path_parts
 fi
 
+export PATH="${ANSIBLE_BIN_DIR}:${ANSIBLE_VENV_PATH}/bin:${PATH}"
 export VIRTUAL_ENV="$ANSIBLE_VENV_PATH"
 export VIRTUAL_ENV_DISABLE_PROMPT=1
+export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-${ANSIBLE_HOME}/ansible.cfg}"
 export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"
 mkdir -p "$ANSIBLE_LOCAL_TEMP"
 export ANSIBLE_LOG_PATH="${ANSIBLE_LOG_PATH:-${HOME}/.ansible/ansible.log}"
@@ -61,17 +89,23 @@ fi
 umask 0007
 export PS1="(${ANSIBLE_RUNTIME})[\u@\h \W]\$ "
 
-ansible-local-switch() {
+alias ansible-local-switch='ansible_local_switch'
+
+if [[ -n "${BASH_VERSION:-}" ]]; then
+shopt -s expand_aliases 2>/dev/null || true
+fi
+
+ansible_local_switch() {
   local _ansible_permanent=0
   local _ansible_runtime=""
   local _arg
 
   if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    command /usr/local/bin/ansible-local-switch --help
+    command "$ANSIBLE_SWITCH_BIN" --help
     return $?
   fi
   if [[ "${1:-}" == "--list" ]]; then
-    command /usr/local/bin/ansible-local-switch --list
+    command "$ANSIBLE_SWITCH_BIN" --list
     return $?
   fi
 
@@ -79,11 +113,11 @@ ansible-local-switch() {
     _arg="$1"
     case "$_arg" in
       --permanent) _ansible_permanent=1 ;;
-      --*) command /usr/local/bin/ansible-local-switch --help; return 2 ;;
+      --*) command "$ANSIBLE_SWITCH_BIN" --help; return 2 ;;
       *)
         if [[ -n "$_ansible_runtime" ]]; then
           echo "Only one runtime may be specified." >&2
-          command /usr/local/bin/ansible-local-switch --help >&2
+          command "$ANSIBLE_SWITCH_BIN" --help >&2
           return 2
         fi
         _ansible_runtime="$_arg"
@@ -93,7 +127,7 @@ ansible-local-switch() {
   done
 
   if [[ -z "$_ansible_runtime" ]]; then
-    command /usr/local/bin/ansible-local-switch --help >&2
+    command "$ANSIBLE_SWITCH_BIN" --help >&2
     return 2
   fi
   case "$_ansible_runtime" in
@@ -107,11 +141,7 @@ ansible-local-switch() {
 
   if [[ "$_ansible_permanent" -eq 1 ]]; then
     local _ansible_switch_status=0
-    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-      command /usr/local/bin/ansible-local-switch --permanent "$_ansible_runtime" || _ansible_switch_status=$?
-    else
-      sudo /usr/local/bin/ansible-local-switch --permanent "$_ansible_runtime" || _ansible_switch_status=$?
-    fi
+    command "$ANSIBLE_SWITCH_BIN" --permanent "$_ansible_runtime" || _ansible_switch_status=$?
     [[ "$_ansible_switch_status" -eq 0 ]] || return "$_ansible_switch_status"
     unset PYTHON_VERSION ANSIBLE_VERSION ANSIBLE_CORE_VERSION ANSIBLE_RUNTIME ANSIBLE_VENV_PATH VIRTUAL_ENV
   else
@@ -124,9 +154,9 @@ ansible-local-switch() {
     echo "Use: ansible-local-switch --permanent $_ansible_runtime  # to change the default"
   fi
 
-  source /etc/profile.d/ansible.sh
+  source "$ANSIBLE_PROFILE_PATH"
 }
 
 if [[ "$USER" == "root" ]]; then
-  echo "WARNING: Using Ansible as root is not recommended. Use an unprivileged user in the ansible group instead."
+  echo "WARNING: Using Ansible as root is not recommended. Use an unprivileged user instead."
 fi

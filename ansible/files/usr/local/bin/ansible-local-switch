@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ANSIBLE_HOME="${ANSIBLE_HOME:-/opt/ansible}"
-PROFILE=/etc/profile.d/ansible.sh
+ANSIBLE_BIN_DIR="${ANSIBLE_BIN_DIR:-/usr/local/bin}"
+PROFILE="${ANSIBLE_PROFILE_PATH:-/etc/profile.d/ansible.sh}"
 usage() {
-  cat <<'USAGE'
+  cat <<USAGE
 Usage:
   ansible-local-switch --help | -h
   ansible-local-switch --list
@@ -12,8 +13,8 @@ Usage:
 
 Behavior:
   <runtime>              Switch only the current shell session when used via
-                         the shell function from /etc/profile.d/ansible.sh.
-  --permanent <runtime>  Also update /opt/ansible/current and profile defaults.
+                         the shell function from $PROFILE.
+  --permanent <runtime>  Also update $ANSIBLE_HOME/current and profile defaults.
   --list                 List installed runtimes.
 
 Examples:
@@ -25,7 +26,10 @@ USAGE
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then usage; exit 0; fi
 if [ "${1:-}" = "--list" ]; then
-  find "$ANSIBLE_HOME/apps" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  for runtime_dir in "$ANSIBLE_HOME"/apps/*; do
+    [ -x "$runtime_dir/bin/ansible" ] || continue
+    basename "$runtime_dir"
+  done | sort
   exit 0
 fi
 
@@ -49,8 +53,8 @@ target="$ANSIBLE_HOME/apps/$runtime"
 [ -x "$target/bin/ansible" ] || { echo "Runtime does not exist or has no ansible: $target" >&2; exit 1; }
 
 if [ "$permanent" -ne 1 ]; then
-  echo "Session-only switching must be done through the shell function loaded from /etc/profile.d/ansible.sh." >&2
-  echo "Run: source /etc/profile.d/ansible.sh" >&2
+  echo "Session-only switching must be done through the shell function loaded from $PROFILE." >&2
+  echo "Run: source $PROFILE" >&2
   echo "Then: ansible-local-switch $runtime" >&2
   echo "For persistent default: ansible-local-switch --permanent $runtime" >&2
   exit 2
@@ -69,5 +73,5 @@ fi
 if grep -q '^export ANSIBLE_CORE_VERSION=' "$PROFILE"; then
   sed -i "s|^export ANSIBLE_CORE_VERSION=.*|export ANSIBLE_CORE_VERSION=\"\${ANSIBLE_CORE_VERSION:-\${ANSIBLE_VERSION}}\"|" "$PROFILE"
 fi
-echo "Permanently switched /opt/ansible/current -> $target"
+echo "Permanently switched $ANSIBLE_HOME/current -> $target"
 echo "Current shell updated automatically when using the ansible-local-switch shell function."
