@@ -32,7 +32,7 @@ has no sudo rights. It keeps everything below `$HOME/ansible` and does not touch
 Use sudo only when root must create/install for another user:
 
 ```bash
-sudo -n true
+sudo -n true && \
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env \
       SCOPE=user \
@@ -42,9 +42,9 @@ curl -fsSL https://ansible-uv.bitbull.ch \
       sh
 ```
 
-If `sudo -n true` fails, do not start a piped sudo installer. Either run the
-userspace command as the target user, or run from an already-root automation
-context such as kickstart `%post`.
+The `&&` is important: if `sudo -n true` fails, the download/pipe must not start.
+Either run the userspace command as the target user, or run from an already-root
+automation context such as kickstart `%post`.
 
 Activate that install as the target user:
 
@@ -166,7 +166,7 @@ curl -L ansible-uv.bitbull.ch | sudo -n env SCOPE=system ANSIBLE_HOME=/srv/ansib
 Use a named userspace target user and group:
 
 ```bash
-sudo -v
+sudo -n true && \
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
 ```
@@ -174,7 +174,7 @@ curl -fsSL https://ansible-uv.bitbull.ch \
 Install for root only, without touching `/etc`:
 
 ```bash
-sudo -v
+sudo -n true && \
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -H -n env SCOPE=user INSTALL_USER=root INSTALL_GROUP=root ANSIBLE_HOME=/root/ansible sh
 ```
@@ -223,7 +223,7 @@ Only use the sudo-assisted form if an admin wants to create the target tree as
 root and then hand ownership to the target user:
 
 ```bash
-sudo -n true
+sudo -n true && \
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
 echo 'source "$HOME/ansible/apps/profile.d/ansible.sh"' >> "$HOME/.bashrc"
@@ -232,8 +232,8 @@ echo 'source "$HOME/ansible/apps/profile.d/ansible.sh"' >> "$HOME/.bashrc"
 Dedicated automation user with its own Ansible tree:
 
 ```bash
+sudo -n true && \
 sudo useradd -m -U ansible-runner
-sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env SCOPE=user INSTALL_USER=ansible-runner INSTALL_GROUP=ansible-runner ANSIBLE_HOME=/home/ansible-runner/ansible sh
 sudo -iu ansible-runner bash -lc 'source ~/ansible/apps/profile.d/ansible.sh && ansible --version'
@@ -261,9 +261,21 @@ do not use sudo at all.
 Unattended script/CI/kickstart style with sudo available and already permitted:
 
 ```bash
-sudo -n true
+sudo -n true && \
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+```
+
+For shell scripts, use an explicit guard if you want a clearer error:
+
+```bash
+if sudo -n true; then
+  curl -fsSL https://ansible-uv.bitbull.ch \
+    | sudo -n env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+else
+  echo "sudo is not available non-interactively; run as root or install as the target user without sudo" >&2
+  exit 1
+fi
 ```
 
 Kickstart `%post` normally runs as root; do not use sudo there:
