@@ -31,8 +31,12 @@ flowchart TD
   pip --> current[Point current symlink at selected runtime]
   current --> seed[Create ansible.cfg and localhost inventory if missing]
   seed --> payloads[Install profile script, ansible-local-switch and adoc]
+  payloads --> bashrc{SCOPE=user?}
+  bashrc -->|yes| userbashrc[Install managed ~/.bashrc activation block]
+  bashrc -->|no| integration
+  userbashrc --> integration
 
-  payloads --> integration{ANSIBLE_LINK_ETC=1?}
+  integration{ANSIBLE_LINK_ETC=1?}
   integration -->|yes| systemfiles[Install bash completion and /etc/ansible symlink]
   integration -->|no| marker[Write ansible-uv marker]
   systemfiles --> marker
@@ -145,6 +149,24 @@ Userspace activation:
 ```bash
 source /home/devel/ansible/apps/profile.d/ansible.sh
 ```
+
+For userspace installs, the installer also runs `install_user_shell_activation`
+and writes an idempotent managed block to the target user's `~/.bashrc`. This
+makes new interactive Bash shells load the userspace profile automatically.
+
+If a host has both a shared system install and a user install, the userspace profile wins over the system profile for that user's interactive Bash shells:
+
+- Login shells may first load `/etc/profile.d/ansible.sh` from the system install.
+- The user's `~/.bashrc` then sets the local `ANSIBLE_HOME`, local helper paths,
+  and unsets the runtime variables inherited from the system profile before
+  sourcing `${ANSIBLE_HOME}/apps/profile.d/ansible.sh`.
+- The profile script removes older Ansible path entries before prepending the
+  userspace `apps/bin` and active runtime `bin`, so the local setup takes
+  precedence for that user.
+
+Users without a local setup keep the normal system behavior from
+`/etc/profile.d/ansible.sh` when their shell/session sources system profile
+scripts.
 
 By default, `SCOPE=user` does not create or modify:
 
