@@ -4,6 +4,96 @@ Small installer for a local Ansible control-node runtime on Rocky, RHEL, AlmaLin
 
 It installs Ansible with `uv`, keeps runtimes versioned under `apps/<python>_<ansible>`, and exposes the active runtime through `current`.
 
+```mermaid
+flowchart TD
+    Start([Start ansible_setup.sh]) --> DetectUser{Running as
+root?}
+    DetectUser -- yes --> ScopeSystem[SCOPE=system]
+    DetectUser -- no --> ScopeUser[SCOPE=user]
+
+    ScopeSystem --> CheckSystem{Existing
+Ansible
+conflict?}
+    CheckSystem -- yes --> ErrConflict[REFUSE INSTALL
+Report conflict]
+    ErrConflict --> EndFail([EXIT - blocked])
+
+    CheckSystem -- no / clean --> OSValidateSystem{Valid
+RHEL-like
+OS?}
+    OSValidateSystem -- no --> EndFail
+    OSValidateSystem -- yes --> EnsureGroupsSys[Ensure user /
+ansible group]
+    EnsureGroupsSys --> InstallOSPkgsSys
+[dnf install OS packages
+python3 curl gcc
+openssl-devel
+etc.]
+
+    InstallOSPkgsSys --> EnsureUVSystem[Install uv
+→ /usr/local/bin/uv]
+    EnsureUVSystem --> CreateDirsSys[Create /opt/ansible
+subdirs + ownership
+0750 / 0640]
+
+    ScopeUser --> EnsureUVUser[Find or install uv
+→ /usr/local/bin/uv
+or apps/bin/uv]
+    EnsureUVUser --> CreateDirsUser[Create ~/ansible
+subdirs + ownership
+0750 / 0640]
+
+    CreateDirsSys --> MakeVenvSys
+    CreateDirsUser --> MakeVenvUser
+
+    subgraph VENV["Create & Populate venv (uv)"]
+        direction TB
+        MakeVenv["uv venv
+ANSIBLE_VENV_PATH"] --> UVInstall["uv pip install
+ansible==VER
+argcomplete"]
+        UVInstall --> CreateCurrent["Symlink
+current →
+ANSIBLE_VENV_PATH"]
+    end
+
+    CreateDirsSys -.-> MakeVenv
+    CreateDirsUser -.-> MakeVenv
+
+    CreateCurrent --> DeployHelpersSys[Deploy helpers
+ansible-local-switch
+adoc
+profile.d/ansible.sh]
+    CreateCurrent --> DeployHelpersUser[Deploy helpers
+ansible-local-switch
+adoc
+profile.d/ansible.sh]
+
+    DeployHelpersSys --> LinkEtc{ANSIBLE_LINK_ETC
+== 1?}
+    LinkEtc -- yes --> EtcIntegrationSys[Create
+/etc/ansible symlink
+/etc/profile.d/ansible.sh
+/etc/bash_completion.d/ansible]
+    EtcIntegrationSys --> EndSuccess([EXIT - success])
+    LinkEtc -- nofilemarker --> EndSuccess
+
+    DeployHelpersUser --> WriteMarker[Write
+.ansible-uv-installer
+marker file]
+    WriteMarker --> EndSuccess
+
+    style Start fill:#2d3748,stroke:#718096,color:#e2e8f0
+    style EndFail fill:#742a2a,stroke:#fc8181,color:#fff5f5
+    style EndSuccess fill:#22543d,stroke:#68d391,color:#f0fff4
+    style ErrConflict fill:#742a2a,stroke:#fc8181,color:#fff5f5
+    style CreateDirsSys fill:#1a365d,stroke:#63b3ed,color:#bee3f8
+    style CreateDirsUser fill:#1a365d,stroke:#63b3ed,color:#bee3f8
+    style InstallOSPkgsSys fill:#553c9a,stroke:#b794f4,color:#faf5ff
+    style EtcIntegrationSys fill:#553c9a,stroke:#b794f4,color:#faf5ff
+    style VENV fill:#234e52,stroke:#4fd1c5,color:#e6fffa
+```
+
 ## Quick install
 
 Canonical short URL, shared system install:
@@ -320,6 +410,41 @@ Detected foreign installs in system mode:
 Rerunning this installer on an ansible-uv managed host is supported. It reuses the runtime when present and runs an upgrade install for the requested Ansible version and `argcomplete`.
 
 ## Runtime switching
+
+```mermaid
+flowchart LR
+    subgraph SOURCE["source profile.d/ansible.sh"]
+        direction TB
+        LoadProfile["source profile script
+(system or user)"] --> ShellFunc[ansible-local-switch
+shell function available]
+    end
+
+    subgraph SHELLSWITCH["Switch current shell only"]
+        direction TB
+        ShellFunc -- "ansible-local-switch 3.12_11.3.0" --> UpdatePath["Update VIRTUAL_ENV
+& PATH for session"]
+        UpdatePath --> Active["New runtime
+active in shell"]
+    end
+
+    subgraph PERMSWITCH["Switch permanent default"]
+        direction TB
+        ShellFunc -- "ansible-local-switch --permanent 3.12_13.40" --> SwitchHelper["ansible-local-switch
+bin helper runs"]
+        SwitchHelper --> UpdateCurrent["Update
+current symlink"]
+        SwitchHelper --> UpdateProfile["Update profile
+default version"]
+        UpdateCurrent --> Persist["Default for
+future shells"]
+        UpdateProfile --> Persist
+    end
+
+    style SOURCE fill:#1a365d,stroke:#63b3ed,color:#bee3f8
+    style SHELLSWITCH fill:#22543d,stroke:#68d391,color:#f0fff4
+    style PERMSWITCH fill:#553c9a,stroke:#b794f4,color:#faf5ff
+```
 
 Load the shell integration first.
 
