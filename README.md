@@ -4,56 +4,41 @@ Small installer for a local Ansible control-node runtime on Rocky, RHEL, AlmaLin
 
 It installs Ansible with `uv`, keeps runtimes versioned under `apps/<python>_<ansible>`, and exposes the active runtime through `current`.
 
+## Installer flow
+
 ```mermaid
 flowchart TD
-    Start([Start ansible_setup.sh]) --> DetectUser{Running as root?}
-    DetectUser -- yes --> ScopeSystem[SCOPE=system]
-    DetectUser -- no --> ScopeUser[SCOPE=user]
+  start([Run ansible_setup.sh]) --> defaults[Resolve defaults: scope, user, group, paths, runtime]
+  defaults --> scope{SCOPE?}
 
-    ScopeSystem --> CheckSystem{Existing Ansible conflict?}
-    CheckSystem -- yes --> ErrConflict[REFUSE INSTALL: report conflict]
-    ErrConflict --> EndFail([EXIT - blocked])
+  scope -->|system| system[Use shared layout under /opt/ansible]
+  scope -->|user| user[Use isolated layout under ANSIBLE_HOME/apps]
 
-    CheckSystem -- no / clean --> OSValidateSystem{Valid RHEL-like OS?}
-    OSValidateSystem -- no --> EndFail
-    OSValidateSystem -- yes --> EnsureGroupsSys[Ensure user / ansible group]
-    EnsureGroupsSys --> InstallOSPkgsSys[dnf install: python3, curl, gcc, openssl-devel …]
+  system --> oscheck[Validate RHEL-like OS and install OS packages with dnf]
+  user --> userspace[Reject system integration flags and validate target-user write access]
 
-    InstallOSPkgsSys --> EnsureUVSystem[Install uv → /usr/local/bin/uv]
-    EnsureUVSystem --> CreateDirsSys[Create /opt/ansible subdirs 0750/0640]
+  oscheck --> conflict[Detect foreign Ansible installs]
+  userspace --> conflict
+  conflict -->|foreign install found| stop([Stop before mixing installs])
+  conflict -->|clean or ansible-uv managed| tree[Create Ansible directory tree]
 
-    ScopeUser --> EnsureUVUser[Find or install uv → apps/bin/uv]
-    EnsureUVUser --> CreateDirsUser[Create ~/ansible subdirs 0750/0640]
+  tree --> uv{Usable uv found?}
+  uv -->|yes| venv[Create or reuse uv virtualenv]
+  uv -->|no| installuv[Install uv to system bin or apps/bin]
+  installuv --> venv
 
-    subgraph VENV["Create & Populate venv (uv)"]
-        direction TB
-        MakeVenv["uv venv → ANSIBLE_VENV_PATH"] --> UVInstall["uv pip install ansible + argcomplete"]
-        UVInstall --> CreateCurrent["Symlink current → ANSIBLE_VENV_PATH"]
-    end
+  venv --> pip[Install or upgrade ansible and argcomplete]
+  pip --> current[Point current symlink at selected runtime]
+  current --> seed[Create ansible.cfg and localhost inventory if missing]
+  seed --> payloads[Install profile script, ansible-local-switch and adoc]
 
-    CreateDirsSys -.-> MakeVenv
-    CreateDirsUser -.-> MakeVenv
+  payloads --> integration{ANSIBLE_LINK_ETC=1?}
+  integration -->|yes| systemfiles[Install bash completion and /etc/ansible symlink]
+  integration -->|no| marker[Write ansible-uv marker]
+  systemfiles --> marker
 
-    CreateCurrent --> DeployHelpersSys[Deploy helpers: ansible-local-switch, adoc, profile.d]
-    CreateCurrent --> DeployHelpersUser[Deploy helpers: ansible-local-switch, adoc, profile.d]
-
-    DeployHelpersSys --> LinkEtc{ANSIBLE_LINK_ETC == 1?}
-    LinkEtc -- yes --> EtcIntegrationSys[Create /etc/ansible symlink + profile + completion]
-    EtcIntegrationSys --> EndSuccess([EXIT - success])
-    LinkEtc -- nofilemarker --> EndSuccess
-
-    DeployHelpersUser --> WriteMarker[Write .ansible-uv-installer marker]
-    WriteMarker --> EndSuccess
-
-    style Start fill:#2d3748,stroke:#718096,color:#e2e8f0
-    style EndFail fill:#742a2a,stroke:#fc8181,color:#fff5f5
-    style EndSuccess fill:#22543d,stroke:#68d391,color:#f0fff4
-    style ErrConflict fill:#742a2a,stroke:#fc8181,color:#fff5f5
-    style CreateDirsSys fill:#1a365d,stroke:#63b3ed,color:#bee3f8
-    style CreateDirsUser fill:#1a365d,stroke:#63b3ed,color:#bee3f8
-    style InstallOSPkgsSys fill:#553c9a,stroke:#b794f4,color:#faf5ff
-    style EtcIntegrationSys fill:#553c9a,stroke:#b794f4,color:#faf5ff
-    style VENV fill:#234e52,stroke:#4fd1c5,color:#e6fffa
+  marker --> perms[Apply ownership and 0750/0640 permissions]
+  perms --> done([Print ansible --version and activation command])
 ```
 
 ## Quick install
