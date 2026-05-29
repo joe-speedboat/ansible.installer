@@ -62,13 +62,18 @@ fi
 
 python_version="${runtime%%_*}"
 ansible_version="${runtime#*_}"
+sed_replacement_escape() {
+  printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+}
+escaped_python_version="$(sed_replacement_escape "$python_version")"
+escaped_ansible_version="$(sed_replacement_escape "$ansible_version")"
 ln -sfn "$target" "$ANSIBLE_HOME/current.tmp"
 mv -Tf "$ANSIBLE_HOME/current.tmp" "$ANSIBLE_HOME/current"
 if grep -q '^export PYTHON_VERSION=' "$PROFILE"; then
-  sed -i "s|^export PYTHON_VERSION=.*|export PYTHON_VERSION=\"\${PYTHON_VERSION:-$python_version}\"|" "$PROFILE"
+  sed -i "s|^export PYTHON_VERSION=.*|export PYTHON_VERSION=\"\${PYTHON_VERSION:-$escaped_python_version}\"|" "$PROFILE"
 fi
 if grep -q '^export ANSIBLE_VERSION=' "$PROFILE"; then
-  sed -i "s|^export ANSIBLE_VERSION=.*|export ANSIBLE_VERSION=\"\${ANSIBLE_VERSION:-\${ANSIBLE_CORE_VERSION:-$ansible_version}}\"|" "$PROFILE"
+  sed -i "s|^export ANSIBLE_VERSION=.*|export ANSIBLE_VERSION=\"\${ANSIBLE_VERSION:-\${ANSIBLE_CORE_VERSION:-$escaped_ansible_version}}\"|" "$PROFILE"
 fi
 if grep -q '^export ANSIBLE_CORE_VERSION=' "$PROFILE"; then
   sed -i "s|^export ANSIBLE_CORE_VERSION=.*|export ANSIBLE_CORE_VERSION=\"\${ANSIBLE_CORE_VERSION:-\${ANSIBLE_VERSION}}\"|" "$PROFILE"
