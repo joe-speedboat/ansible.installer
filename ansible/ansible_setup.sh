@@ -1,7 +1,7 @@
 #!/bin/sh
 # uv-based local Ansible control-node installer for RHEL/Rocky/Alma-like hosts.
 # One-liner:
-#   curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
+#   curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo -n sh
 set -eu
 
 PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
@@ -222,7 +222,7 @@ Ansible installation method such as RPM, ansible.bitbull.ch, pip, or a manual
 ${reasons}
 
 Please remove or migrate the existing Ansible installation first, then rerun:
-  curl -L ansible-uv.bitbull.ch | sudo sh
+  curl -L ansible-uv.bitbull.ch | sudo -n sh
 
 If this host is already managed by ansible-uv, make sure ${ANSIBLE_UV_MARKER}
 exists or the selected profile script contains ANSIBLE_UV_INSTALLER=1.

@@ -10,13 +10,13 @@ Canonical short URL, shared system install:
 
 ```bash
 sudo -v
-curl -L ansible-uv.bitbull.ch | sudo sh
+curl -L ansible-uv.bitbull.ch | sudo -n sh
 ```
 
 GitHub URL:
 
 ```bash
-curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
+curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo -n sh
 ```
 
 Userspace install for the current login user, launched through `sudo` but writing
@@ -25,7 +25,7 @@ only to that user's Ansible tree:
 ```bash
 sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo env \
+  | sudo -n env \
       SCOPE=user \
       INSTALL_USER="$USER" \
       INSTALL_GROUP="$(id -gn)" \
@@ -135,19 +135,19 @@ you want `/etc/profile.d`, `/etc/ansible`, or system-wide completion files.
 Install a specific Python and Ansible version:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env PYTHON_VERSION=3.12 ANSIBLE_VERSION=11.3.0 sh
+curl -L ansible-uv.bitbull.ch | sudo -n env PYTHON_VERSION=3.12 ANSIBLE_VERSION=11.3.0 sh
 ```
 
 Use an explicit runtime name:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env ANSIBLE_RUNTIME=3.12_13.4.0 sh
+curl -L ansible-uv.bitbull.ch | sudo -n env ANSIBLE_RUNTIME=3.12_13.4.0 sh
 ```
 
 Use a non-default system home path:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env SCOPE=system ANSIBLE_HOME=/srv/ansible sh
+curl -L ansible-uv.bitbull.ch | sudo -n env SCOPE=system ANSIBLE_HOME=/srv/ansible sh
 ```
 
 Use a named userspace target user and group:
@@ -155,7 +155,7 @@ Use a named userspace target user and group:
 ```bash
 sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+  | sudo -n env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
 ```
 
 Install for root only, without touching `/etc`:
@@ -163,7 +163,7 @@ Install for root only, without touching `/etc`:
 ```bash
 sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo -H env SCOPE=user INSTALL_USER=root INSTALL_GROUP=root ANSIBLE_HOME=/root/ansible sh
+  | sudo -H -n env SCOPE=user INSTALL_USER=root INSTALL_GROUP=root ANSIBLE_HOME=/root/ansible sh
 ```
 
 Do not use `ANSIBLE_LINK_ETC=1` with `SCOPE=user`; the installer rejects that
@@ -192,7 +192,7 @@ sudo RAW_BASE=file:///tmp/ansible.installer sh /tmp/ansible.installer/ansible/an
 Use an existing `uv` binary:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env UV_BIN=/usr/local/bin/uv sh
+curl -L ansible-uv.bitbull.ch | sudo -n env UV_BIN=/usr/local/bin/uv sh
 ```
 
 ### Real-world userspace patterns
@@ -202,7 +202,7 @@ Current user, admin-assisted install, no system integration:
 ```bash
 sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
+  | sudo -n env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
 echo 'source "$HOME/ansible/apps/profile.d/ansible.sh"' >> "$HOME/.bashrc"
 ```
 
@@ -212,7 +212,7 @@ Dedicated automation user with its own Ansible tree:
 sudo useradd -m -U ansible-runner
 sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo env SCOPE=user INSTALL_USER=ansible-runner INSTALL_GROUP=ansible-runner ANSIBLE_HOME=/home/ansible-runner/ansible sh
+  | sudo -n env SCOPE=user INSTALL_USER=ansible-runner INSTALL_GROUP=ansible-runner ANSIBLE_HOME=/home/ansible-runner/ansible sh
 sudo -iu ansible-runner bash -lc 'source ~/ansible/apps/profile.d/ansible.sh && ansible --version'
 ```
 
@@ -221,18 +221,35 @@ Shared system runtime plus isolated user runtimes:
 ```bash
 # first, optional system install; provides /usr/local/bin/uv and shared /opt/ansible
 sudo -v
-curl -fsSL https://ansible-uv.bitbull.ch | sudo sh
+curl -fsSL https://ansible-uv.bitbull.ch | sudo -n sh
 
 # later, users can install isolated workspaces and reuse executable system uv
 sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
+  | sudo -n env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
 ```
 
-Why `sudo -v` first? In `curl | sudo sh`, both commands start at the same time.
-If sudo needs a password, the download can finish before sudo asks for it, which
-looks confusing and can fail in non-interactive shells. `sudo -v` refreshes the
-sudo timestamp before the pipe starts.
+Why `sudo -v` first and `sudo -n` in the pipe? In `curl | sudo sh`, both
+commands start at the same time. If sudo needs a password, the download can
+finish before sudo asks for it, which looks like a hung installer. `sudo -v`
+refreshes the sudo timestamp before the pipe starts. `sudo -n` makes the sudo
+inside the pipe non-interactive: it either runs with the cached/root credentials
+or fails immediately instead of waiting for a password.
+
+Unattended script/CI/kickstart style with sudo available and already permitted:
+
+```bash
+sudo -n true
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo -n env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+```
+
+Kickstart `%post` normally runs as root; do not use sudo there:
+
+```bash
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+```
 
 In user scope the installer looks for executable `uv` in `/usr/local/bin/uv` and
 `/usr/bin/uv` first. If neither is usable by the target user, it places a private
