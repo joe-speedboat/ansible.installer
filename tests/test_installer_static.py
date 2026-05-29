@@ -17,8 +17,17 @@ def test_installer_files_exist():
 
 def test_one_liner_documented():
     text = README.read_text()
-    assert "curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh" in text
-    assert text.count("curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh") == 1
+    marker = "curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo -n sh"
+    assert marker in text
+    assert text.count(marker) == 1
+
+
+def test_readme_has_unattended_sudo_safe_examples():
+    text = README.read_text()
+    assert "sudo -n true" in text
+    assert "sudo -n env" in text
+    assert "Kickstart" in text
+    assert "runs as root; do not use sudo" in text
 
 
 def test_readme_documents_supported_variables_with_examples():
