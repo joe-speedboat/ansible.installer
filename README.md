@@ -233,10 +233,10 @@ Dedicated automation user with its own Ansible tree:
 
 ```bash
 sudo -n true && \
-sudo useradd -m -U ansible-runner
+sudo -n useradd -m -U ansible-runner && \
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env SCOPE=user INSTALL_USER=ansible-runner INSTALL_GROUP=ansible-runner ANSIBLE_HOME=/home/ansible-runner/ansible sh
-sudo -iu ansible-runner bash -lc 'source ~/ansible/apps/profile.d/ansible.sh && ansible --version'
+sudo -n -iu ansible-runner bash -lc 'source ~/ansible/apps/profile.d/ansible.sh && ansible --version'
 ```
 
 Shared system runtime plus isolated user runtimes:
