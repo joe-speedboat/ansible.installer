@@ -22,12 +22,16 @@ def test_one_liner_documented():
     assert text.count(marker) == 1
 
 
-def test_readme_has_unattended_sudo_safe_examples():
+def test_readme_has_unattended_userspace_examples():
     text = README.read_text()
+    assert "Userspace install for the current login user, without sudo" in text
+    assert 'curl -fsSL https://ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME="$HOME/ansible" sh' in text
+    assert "Use sudo only when root must create/install for another user" in text
     assert "sudo -n true" in text
     assert "sudo -n env" in text
     assert "Kickstart" in text
     assert "runs as root; do not use sudo" in text
+    assert "No sudo privileges available" in text
 
 
 def test_readme_documents_supported_variables_with_examples():

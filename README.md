@@ -19,19 +19,32 @@ GitHub URL:
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo -n sh
 ```
 
-Userspace install for the current login user, launched through `sudo` but writing
-only to that user's Ansible tree:
+Userspace install for the current login user, without sudo:
 
 ```bash
-sudo -v
+curl -fsSL https://ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME="$HOME/ansible" sh
+```
+
+This is the right command when the target user already owns the target path and
+has no sudo rights. It keeps everything below `$HOME/ansible` and does not touch
+`/etc`, `/usr/local/bin`, or `/opt`.
+
+Use sudo only when root must create/install for another user:
+
+```bash
+sudo -n true
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env \
       SCOPE=user \
-      INSTALL_USER="$USER" \
-      INSTALL_GROUP="$(id -gn)" \
-      ANSIBLE_HOME="$HOME/ansible" \
+      INSTALL_USER="devel" \
+      INSTALL_GROUP="devel" \
+      ANSIBLE_HOME="/home/devel/ansible" \
       sh
 ```
+
+If `sudo -n true` fails, do not start a piped sudo installer. Either run the
+userspace command as the target user, or run from an already-root automation
+context such as kickstart `%post`.
 
 Activate that install as the target user:
 
@@ -197,10 +210,20 @@ curl -L ansible-uv.bitbull.ch | sudo -n env UV_BIN=/usr/local/bin/uv sh
 
 ### Real-world userspace patterns
 
-Current user, admin-assisted install, no system integration:
+No sudo privileges available, current user only:
 
 ```bash
-sudo -v
+curl -fsSL https://ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME="$HOME/ansible" sh
+source "$HOME/ansible/apps/profile.d/ansible.sh"
+ansible --version
+```
+
+Current user with sudo available is usually still better installed without sudo.
+Only use the sudo-assisted form if an admin wants to create the target tree as
+root and then hand ownership to the target user:
+
+```bash
+sudo -n true
 curl -fsSL https://ansible-uv.bitbull.ch \
   | sudo -n env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
 echo 'source "$HOME/ansible/apps/profile.d/ansible.sh"' >> "$HOME/.bashrc"
@@ -224,17 +247,16 @@ sudo -v
 curl -fsSL https://ansible-uv.bitbull.ch | sudo -n sh
 
 # later, users can install isolated workspaces and reuse executable system uv
-sudo -v
-curl -fsSL https://ansible-uv.bitbull.ch \
-  | sudo -n env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
+curl -fsSL https://ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME="$HOME/ansible" sh
 ```
 
-Why `sudo -v` first and `sudo -n` in the pipe? In `curl | sudo sh`, both
-commands start at the same time. If sudo needs a password, the download can
-finish before sudo asks for it, which looks like a hung installer. `sudo -v`
-refreshes the sudo timestamp before the pipe starts. `sudo -n` makes the sudo
-inside the pipe non-interactive: it either runs with the cached/root credentials
-or fails immediately instead of waiting for a password.
+Why `sudo -n` in piped sudo examples? In `curl | sudo sh`, both commands start
+at the same time. If sudo needs a password, the download can finish before sudo
+asks for it, which looks like a hung installer and ends with `curl: (23)` once
+sudo exits. `sudo -n` makes sudo non-interactive: it either runs with existing
+root/sudo rights or fails immediately. For unattended sudo, preflight with
+`sudo -n true` before starting the pipe. For current-user userspace installs,
+do not use sudo at all.
 
 Unattended script/CI/kickstart style with sudo available and already permitted:
 
