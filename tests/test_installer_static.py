@@ -43,6 +43,8 @@ def test_readme_documents_supported_variables_with_examples():
     ]
     for marker in required:
         assert marker in text
+    assert "SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible ANSIBLE_LINK_ETC=1" not in text
+    assert "SCOPE=user` intentionally refuses `ANSIBLE_LINK_ETC=1" in text
 
 
 def test_installer_uses_single_repo_for_payload_files():
@@ -68,9 +70,11 @@ def test_all_installed_ansible_payloads_are_root_ansible_without_other_access():
     text = SETUP.read_text()
     assert 'install_repo_file "ansible/files/etc/profile.d/ansible.sh" "$ANSIBLE_PROFILE_PATH" 0750' in text
     assert 'install_repo_file "ansible/files/usr/local/bin/adoc" "$ANSIBLE_ADOC_BIN" 0750' in text
-    assert 'install -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 0640 /dev/null /etc/bash_completion.d/ansible' in text
+    assert 'install -o root -g "$INSTALL_GROUP" -m 0640 /dev/null /etc/bash_completion.d/ansible' in text
+    assert 'chown "root:$INSTALL_GROUP" /etc/bash_completion.d/ansible' in text
     assert 'chown -h "$INSTALL_USER:$INSTALL_GROUP" /etc/ansible' in text
-    assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +' in text
+    assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0640 {} +' in text
+    assert 'find "$ANSIBLE_APPS_DIR" -path \'*/bin/*\' -type f -exec chmod 0750 {} +' in text
     forbidden = [
         ' /etc/profile.d/ansible.sh 0644 root:root',
         ' /usr/local/bin/adoc 0755 root:root',
@@ -85,7 +89,18 @@ def test_opt_ansible_tree_is_root_ansible_and_750():
     assert 'find "$ANSIBLE_HOME" -type l -exec chown -h "$(owner_group)" {} +' in text
     assert 'find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +' in text
     assert 'find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +' in text
-    assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +' in text
+    assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0640 {} +' in text
+    assert 'chmod 0750 "$ANSIBLE_PROFILE_PATH" "$ANSIBLE_SWITCH_BIN" "$ANSIBLE_ADOC_BIN"' in text
+
+
+def test_template_rendering_escapes_sed_replacement_values():
+    setup_text = SETUP.read_text()
+    switch_text = SWITCH.read_text()
+    assert "sed_replacement_escape" in setup_text
+    assert "escaped_ansible_home" in setup_text
+    assert "escaped_ansible_profile_path" in setup_text
+    assert "sed_replacement_escape" in switch_text
+    assert "escaped_ansible_version" in switch_text
 
 
 def test_installer_contains_target_architecture_markers():

@@ -237,22 +237,46 @@ install_repo_file() {
   mode="$3"
   tmp="${dest}.tmp.$$"
   dir="$(dirname "$dest")"
-  mkdir -p "$dir"
-  if [ "$dir" = "/etc/profile.d" ] && [ "$(id -u)" -eq 0 ]; then chmod 0755 /etc/profile.d; fi
+  if [ "$(id -u)" -eq 0 ]; then
+    case "$SCOPE:$dir" in
+      system:/etc/profile.d) install -d -o root -g root -m 0755 "$dir" ;;
+      system:/usr/local/bin) install -d -o root -g root -m 0755 "$dir" ;;
+      system:*) install -d -o root -g "$INSTALL_GROUP" -m 0750 "$dir" ;;
+      user:*) install -d -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 0750 "$dir" ;;
+    esac
+  else
+    mkdir -p "$dir"
+  fi
   curl -fsSL "$RAW_BASE/$src" -o "$tmp"
   chmod "$mode" "$tmp"
-  if [ "$(id -u)" -eq 0 ]; then chown "$(owner_group)" "$tmp"; fi
+  if [ "$(id -u)" -eq 0 ]; then
+    if [ "$SCOPE" = "system" ]; then
+      chown "root:$INSTALL_GROUP" "$tmp"
+    else
+      chown "$(owner_group)" "$tmp"
+    fi
+  fi
   mv -f "$tmp" "$dest"
 }
 
+sed_replacement_escape() {
+  printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
+}
+
 render_profile_defaults() {
+  escaped_python_version="$(sed_replacement_escape "$PYTHON_VERSION")"
+  escaped_ansible_version="$(sed_replacement_escape "$ANSIBLE_VERSION")"
+  escaped_ansible_home="$(sed_replacement_escape "$ANSIBLE_HOME")"
+  escaped_ansible_bin_dir="$(sed_replacement_escape "$ANSIBLE_BIN_DIR")"
+  escaped_ansible_profile_path="$(sed_replacement_escape "$ANSIBLE_PROFILE_PATH")"
+  escaped_ansible_switch_bin="$(sed_replacement_escape "$ANSIBLE_SWITCH_BIN")"
   sed -i \
-    -e "s|@PYTHON_VERSION@|${PYTHON_VERSION}|g" \
-    -e "s|@ANSIBLE_VERSION@|${ANSIBLE_VERSION}|g" \
-    -e "s|@ANSIBLE_HOME@|${ANSIBLE_HOME}|g" \
-    -e "s|@ANSIBLE_BIN_DIR@|${ANSIBLE_BIN_DIR}|g" \
-    -e "s|@ANSIBLE_PROFILE_PATH@|${ANSIBLE_PROFILE_PATH}|g" \
-    -e "s|@ANSIBLE_SWITCH_BIN@|${ANSIBLE_SWITCH_BIN}|g" \
+    -e "s|@PYTHON_VERSION@|${escaped_python_version}|g" \
+    -e "s|@ANSIBLE_VERSION@|${escaped_ansible_version}|g" \
+    -e "s|@ANSIBLE_HOME@|${escaped_ansible_home}|g" \
+    -e "s|@ANSIBLE_BIN_DIR@|${escaped_ansible_bin_dir}|g" \
+    -e "s|@ANSIBLE_PROFILE_PATH@|${escaped_ansible_profile_path}|g" \
+    -e "s|@ANSIBLE_SWITCH_BIN@|${escaped_ansible_switch_bin}|g" \
     "$ANSIBLE_PROFILE_PATH"
 }
 
@@ -391,7 +415,7 @@ if [ ! -e "$ANSIBLE_HOME/ansible.cfg" ]; then
 inventory=${ANSIBLE_HOME}/inventory
 roles_path=${ANSIBLE_HOME}/roles
 log_path=${ANSIBLE_HOME}/logs/ansible.log
-host_key_checking=False
+host_key_checking=True
 retry_files_enabled=False
 deprecation_warnings=False
 interpreter_python=auto_silent
@@ -426,9 +450,9 @@ if [ "$ANSIBLE_LINK_ETC" = "1" ]; then
   fi
   if [ -d /etc/bash_completion.d ]; then
     log "Installing argcomplete hook"
-    install -o "$INSTALL_USER" -g "$INSTALL_GROUP" -m 0640 /dev/null /etc/bash_completion.d/ansible
+    install -o root -g "$INSTALL_GROUP" -m 0640 /dev/null /etc/bash_completion.d/ansible
     "$ANSIBLE_VENV_PATH/bin/register-python-argcomplete" ansible > /etc/bash_completion.d/ansible || true
-    chown "$INSTALL_USER:$INSTALL_GROUP" /etc/bash_completion.d/ansible
+    chown "root:$INSTALL_GROUP" /etc/bash_completion.d/ansible
     chmod 0640 /etc/bash_completion.d/ansible
   fi
   if [ ! -e /etc/ansible ]; then
@@ -462,7 +486,9 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +
 find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +
-find "$ANSIBLE_HOME" -type f -exec chmod 0750 {} +
+find "$ANSIBLE_HOME" -type f -exec chmod 0640 {} +
+find "$ANSIBLE_APPS_DIR" -path '*/bin/*' -type f -exec chmod 0750 {} +
+chmod 0750 "$ANSIBLE_PROFILE_PATH" "$ANSIBLE_SWITCH_BIN" "$ANSIBLE_ADOC_BIN" 2>/dev/null || true
 
 log "Done. Active runtime: $ANSIBLE_RUNTIME"
 run_as_install_user "$ANSIBLE_VENV_PATH/bin/ansible" --version | sed -n '1,8p'

@@ -54,11 +54,13 @@ else
 fi
 unset _ansible_user_overrides_venv
 
-if [[ -n "${VIRTUAL_ENV:-}" ]]; then
-  _ansible_new_path=""
+_ansible_remove_path_entry() {
+  local _ansible_remove="$1"
+  local _ansible_new_path=""
+  local _ansible_path_part
   IFS=':' read -r -a _ansible_path_parts <<< "$PATH"
   for _ansible_path_part in "${_ansible_path_parts[@]}"; do
-    if [[ "$_ansible_path_part" != "${VIRTUAL_ENV}/bin" ]]; then
+    if [[ -n "$_ansible_path_part" && "$_ansible_path_part" != "$_ansible_remove" ]]; then
       if [[ -z "$_ansible_new_path" ]]; then
         _ansible_new_path="$_ansible_path_part"
       else
@@ -66,9 +68,17 @@ if [[ -n "${VIRTUAL_ENV:-}" ]]; then
       fi
     fi
   done
-  export PATH="$_ansible_new_path"
-  unset _ansible_new_path _ansible_path_part _ansible_path_parts
+  PATH="$_ansible_new_path"
+  unset _ansible_remove _ansible_new_path _ansible_path_part _ansible_path_parts
+}
+
+if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+  _ansible_remove_path_entry "${VIRTUAL_ENV}/bin"
 fi
+_ansible_remove_path_entry "$ANSIBLE_BIN_DIR"
+_ansible_remove_path_entry "${ANSIBLE_VENV_PATH}/bin"
+export PATH
+unset -f _ansible_remove_path_entry
 
 export PATH="${ANSIBLE_BIN_DIR}:${ANSIBLE_VENV_PATH}/bin:${PATH}"
 export VIRTUAL_ENV="$ANSIBLE_VENV_PATH"
@@ -78,16 +88,17 @@ export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"
 mkdir -p "$ANSIBLE_LOCAL_TEMP"
 export ANSIBLE_LOG_PATH="${ANSIBLE_LOG_PATH:-${HOME}/.ansible/ansible.log}"
 mkdir -p "$(dirname "$ANSIBLE_LOG_PATH")"
+umask 0007
 
-alias cda='cd $ANSIBLE_HOME'
-alias via='ansible-vault edit'
-
-if [[ -r "$ANSIBLE_VENV_PATH/bin/activate" ]]; then
-  source "$ANSIBLE_VENV_PATH/bin/activate"
+if [[ $- == *i* ]]; then
+  alias cda='cd $ANSIBLE_HOME'
+  alias via='ansible-vault edit'
+  export PS1="(${ANSIBLE_RUNTIME})[\u@\h \W]\$ "
+  if [[ "$USER" == "root" ]]; then
+    echo "WARNING: Using Ansible as root is not recommended. Use an unprivileged user instead."
+  fi
 fi
 
-umask 0007
-export PS1="(${ANSIBLE_RUNTIME})[\u@\h \W]\$ "
 
 alias ansible-local-switch='ansible_local_switch'
 
@@ -156,7 +167,3 @@ ansible_local_switch() {
 
   source "$ANSIBLE_PROFILE_PATH"
 }
-
-if [[ "$USER" == "root" ]]; then
-  echo "WARNING: Using Ansible as root is not recommended. Use an unprivileged user instead."
-fi

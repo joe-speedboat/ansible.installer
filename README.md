@@ -18,22 +18,30 @@ GitHub URL:
 curl -L https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main/ansible/ansible_setup.sh | sudo sh
 ```
 
-Fully userspace-style install for a named user, with no `/etc` integration by default:
+Userspace install for the current login user, launched through `sudo` but writing
+only to that user's Ansible tree:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo env \
+      SCOPE=user \
+      INSTALL_USER="$USER" \
+      INSTALL_GROUP="$(id -gn)" \
+      ANSIBLE_HOME="$HOME/ansible" \
+      sh
 ```
 
 Activate that install as the target user:
 
 ```bash
-sudo -iu devel bash -lc 'source /home/devel/ansible/apps/profile.d/ansible.sh && ansible --version'
+source "$HOME/ansible/apps/profile.d/ansible.sh"
+ansible --version
 ```
 
 If you are already the target user, userspace install also works without sudo:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME=$HOME/ansible sh
+curl -fsSL https://ansible-uv.bitbull.ch | env SCOPE=user ANSIBLE_HOME="$HOME/ansible" sh
 ```
 
 ## Scopes
@@ -95,7 +103,8 @@ By default, `SCOPE=user` does not create or modify:
 - `/usr/local/bin/adoc`
 - `/opt/ansible`
 
-Set `ANSIBLE_LINK_ETC=1` only if you explicitly want `/etc` integration.
+`SCOPE=user` intentionally refuses `ANSIBLE_LINK_ETC=1`. Use `SCOPE=system` if
+you want `/etc/profile.d`, `/etc/ansible`, or system-wide completion files.
 
 ## Defaults
 
@@ -142,14 +151,19 @@ curl -L ansible-uv.bitbull.ch | sudo env SCOPE=system ANSIBLE_HOME=/srv/ansible 
 Use a named userspace target user and group:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible sh
 ```
 
-Use userspace mode but also opt into `/etc` links:
+Install for root only, without touching `/etc`:
 
 ```bash
-curl -L ansible-uv.bitbull.ch | sudo env SCOPE=user INSTALL_USER=devel INSTALL_GROUP=devel ANSIBLE_HOME=/home/devel/ansible ANSIBLE_LINK_ETC=1 sh
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo -H env SCOPE=user INSTALL_USER=root INSTALL_GROUP=root ANSIBLE_HOME=/root/ansible sh
 ```
+
+Do not use `ANSIBLE_LINK_ETC=1` with `SCOPE=user`; the installer rejects that
+combination to keep user installs independent from system integration.
 
 Use specific per-user temp and log paths for Ansible:
 
@@ -176,6 +190,56 @@ Use an existing `uv` binary:
 ```bash
 curl -L ansible-uv.bitbull.ch | sudo env UV_BIN=/usr/local/bin/uv sh
 ```
+
+### Real-world userspace patterns
+
+Current user, admin-assisted install, no system integration:
+
+```bash
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
+echo 'source "$HOME/ansible/apps/profile.d/ansible.sh"' >> "$HOME/.bashrc"
+```
+
+Dedicated automation user with its own Ansible tree:
+
+```bash
+sudo useradd -m -U ansible-runner
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo env SCOPE=user INSTALL_USER=ansible-runner INSTALL_GROUP=ansible-runner ANSIBLE_HOME=/home/ansible-runner/ansible sh
+sudo -iu ansible-runner bash -lc 'source ~/ansible/apps/profile.d/ansible.sh && ansible --version'
+```
+
+Shared system runtime plus isolated user runtimes:
+
+```bash
+# first, optional system install; provides /usr/local/bin/uv and shared /opt/ansible
+curl -fsSL https://ansible-uv.bitbull.ch | sudo sh
+
+# later, users can install isolated workspaces and reuse executable system uv
+curl -fsSL https://ansible-uv.bitbull.ch \
+  | sudo env SCOPE=user INSTALL_USER="$USER" INSTALL_GROUP="$(id -gn)" ANSIBLE_HOME="$HOME/ansible" sh
+```
+
+In user scope the installer looks for executable `uv` in `/usr/local/bin/uv` and
+`/usr/bin/uv` first. If neither is usable by the target user, it places a private
+copy in `${ANSIBLE_HOME}/apps/bin/uv`.
+
+### Security model
+
+- The default `SCOPE=user` layout never writes `/etc/profile.d`, `/etc/ansible`,
+  `/etc/bash_completion.d`, or `/usr/local/bin`.
+- `SCOPE=user` validates that all selected target paths are writable by the
+  target install user before installing.
+- System integration files are owned by `root` and the selected Ansible group;
+  the Ansible workspace remains owned by the selected install user/group.
+- Ansible tree directories are mode `0750`; regular data/config files are mode
+  `0640`; executable payloads and virtualenv commands are mode `0750`.
+- The generated default `ansible.cfg` keeps SSH host key checking enabled. For
+  disposable labs you can explicitly disable it in `${ANSIBLE_HOME}/ansible.cfg`.
+- Downloads still come from HTTPS endpoints at install time (`ansible-uv.bitbull.ch`,
+  GitHub raw files, and upstream `uv`). Pin and mirror those inputs internally if
+  your environment requires fully reproducible or offline installs.
 
 ## Existing Ansible installs
 
