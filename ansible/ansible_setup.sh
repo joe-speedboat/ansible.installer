@@ -73,6 +73,10 @@ ANSIBLE_INSTALL_OS_PACKAGES="${ANSIBLE_INSTALL_OS_PACKAGES:-}"
 # Package install pattern: uv pip install --python ${ANSIBLE_VENV_PATH}/bin/python ansible==${ANSIBLE_VERSION} argcomplete.
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main}"
 UV_BIN="${UV_BIN:-}"
+UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-}"
+if [ -z "$UV_PYTHON_INSTALL_DIR" ] && [ "$SCOPE" = "system" ]; then
+  UV_PYTHON_INSTALL_DIR="${ANSIBLE_APPS_DIR}/python"
+fi
 
 log() { printf '[ansible-installer] %s\n' "$*"; }
 fail() { printf '[ansible-installer] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -125,6 +129,25 @@ run_as_install_user() {
   else
     fail "cannot run command as $INSTALL_USER; run as that user or install runuser/sudo"
   fi
+}
+
+run_uv_as_install_user() {
+  if [ -n "$UV_PYTHON_INSTALL_DIR" ]; then
+    run_as_install_user env UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" "$UV_BIN" --no-config "$@"
+  else
+    run_as_install_user "$UV_BIN" --no-config "$@"
+  fi
+}
+
+runtime_python_is_shared() {
+  [ "$SCOPE" = "system" ] || return 0
+  [ -x "$ANSIBLE_VENV_PATH/bin/python" ] || return 1
+  python_target="$(readlink -f "$ANSIBLE_VENV_PATH/bin/python" 2>/dev/null || true)"
+  [ -n "$python_target" ] || return 1
+  case "$python_target" in
+    "$ANSIBLE_HOME"/*|"$UV_PYTHON_INSTALL_DIR"/*|/usr/*|/bin/*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 owner_group() {
@@ -409,6 +432,9 @@ install -d -m 0750 \
   "$ANSIBLE_HOME/playbooks" \
   "$ANSIBLE_HOME/projects" \
   "$ANSIBLE_HOME/roles"
+if [ -n "$UV_PYTHON_INSTALL_DIR" ]; then
+  install -d -m 0750 "$UV_PYTHON_INSTALL_DIR"
+fi
 if [ "$(id -u)" -eq 0 ]; then
   chown -R "$(owner_group)" "$ANSIBLE_HOME"
 fi
@@ -439,16 +465,20 @@ if [ -z "$UV_BIN" ]; then
 fi
 [ -x "$UV_BIN" ] || fail "uv not executable at $UV_BIN"
 
-if [ -x "$ANSIBLE_VENV_PATH/bin/python" ]; then
+if [ -x "$ANSIBLE_VENV_PATH/bin/python" ] && runtime_python_is_shared; then
   log "Reusing existing uv runtime at $ANSIBLE_VENV_PATH"
 else
+  if [ -e "$ANSIBLE_VENV_PATH" ]; then
+    log "Removing uv runtime with non-shared or unusable Python at $ANSIBLE_VENV_PATH"
+    rm -rf "$ANSIBLE_VENV_PATH"
+  fi
   log "Creating uv runtime at $ANSIBLE_VENV_PATH"
-  run_as_install_user "$UV_BIN" --no-config venv --python "$PYTHON_VERSION" "$ANSIBLE_VENV_PATH"
+  run_uv_as_install_user venv --python "$PYTHON_VERSION" "$ANSIBLE_VENV_PATH"
 fi
 
 log "Installing/upgrading ansible==${ANSIBLE_VERSION} and argcomplete"
 # Reruns use the equivalent of: uv pip install --upgrade ansible==${ANSIBLE_VERSION} argcomplete
-run_as_install_user "$UV_BIN" --no-config pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" "ansible==${ANSIBLE_VERSION}" argcomplete
+run_uv_as_install_user pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" "ansible==${ANSIBLE_VERSION}" argcomplete
 
 log "Updating active runtime symlink"
 ln -sfn "$ANSIBLE_VENV_PATH" "$ANSIBLE_HOME/current.tmp"
@@ -524,6 +554,7 @@ ANSIBLE_PROFILE_PATH=$ANSIBLE_PROFILE_PATH
 PYTHON_VERSION=$PYTHON_VERSION
 ANSIBLE_VERSION=$ANSIBLE_VERSION
 ANSIBLE_RUNTIME=$ANSIBLE_RUNTIME
+UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR
 RAW_BASE=$RAW_BASE
 EOF_MARKER
 

@@ -13,6 +13,14 @@ export ANSIBLE_VERSION="${ANSIBLE_VERSION:-${ANSIBLE_CORE_VERSION:-@ANSIBLE_VERS
 export ANSIBLE_CORE_VERSION="${ANSIBLE_CORE_VERSION:-${ANSIBLE_VERSION}}"
 export ANSIBLE_RUNTIME="${ANSIBLE_RUNTIME:-${PYTHON_VERSION}_${ANSIBLE_VERSION}}"
 
+# Drop root-scoped Ansible runtime paths when the profile is sourced after
+# switching from root to an unprivileged account. This keeps sudo/runuser based
+# checks from inheriting /root paths that the target user cannot create.
+if [ "${HOME:-}" != "/root" ]; then
+  case "${ANSIBLE_LOCAL_TEMP:-}" in /root/.ansible/tmp) unset ANSIBLE_LOCAL_TEMP ;; esac
+  case "${ANSIBLE_LOG_PATH:-}" in /root/.ansible/ansible.log) unset ANSIBLE_LOG_PATH ;; esac
+fi
+
 # /etc/profile.d/*.sh may be sourced by POSIX sh. Keep non-Bash shells usable
 # with the active runtime, and reserve aliases/functions/runtime switching for Bash.
 if [ -z "${BASH_VERSION:-}" ]; then

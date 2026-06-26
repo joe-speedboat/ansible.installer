@@ -54,6 +54,7 @@ def test_readme_documents_supported_variables_with_examples():
         "ANSIBLE_LINK_ETC=0",
         "RAW_BASE=",
         "UV_BIN=/usr/local/bin/uv",
+        "UV_PYTHON_INSTALL_DIR=/opt/ansible/apps/python",
     ]
     for marker in required:
         assert marker in text
@@ -187,6 +188,20 @@ def test_system_scope_keeps_shared_bin_directory_traversable_for_later_user_inst
     assert 'chmod 0755 /usr/local/bin/uv /usr/local/bin/uvx' in text
 
 
+def test_system_scope_uses_shared_uv_python_install_dir():
+    text = SETUP.read_text()
+    readme_text = README.read_text()
+    assert 'UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-}"' in text
+    assert 'UV_PYTHON_INSTALL_DIR="${ANSIBLE_APPS_DIR}/python"' in text
+    assert 'install -d -m 0750 "$UV_PYTHON_INSTALL_DIR"' in text
+    assert 'env UV_PYTHON_INSTALL_DIR="$UV_PYTHON_INSTALL_DIR" "$UV_BIN" --no-config' in text
+    assert 'runtime_python_is_shared' in text
+    assert 'Removing uv runtime with non-shared or unusable Python' in text
+    assert 'UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR' in text
+    assert '/root/.local/share/uv' in readme_text
+    assert '/opt/ansible/apps/python' in readme_text
+
+
 def test_user_scope_reuses_system_uv_when_executable_then_falls_back_to_user_uv():
     text = SETUP.read_text()
     assert 'for candidate in /usr/local/bin/uv /usr/bin/uv "$ANSIBLE_BIN_DIR/uv"; do' in text
@@ -267,6 +282,9 @@ def test_profile_shell_function_uses_installed_switch_path():
 
 def test_profile_uses_per_user_ansible_local_temp():
     text = PROFILE.read_text()
+    assert 'if [ "${HOME:-}" != "/root" ]; then' in text
+    assert 'case "${ANSIBLE_LOCAL_TEMP:-}" in /root/.ansible/tmp) unset ANSIBLE_LOCAL_TEMP ;; esac' in text
+    assert 'case "${ANSIBLE_LOG_PATH:-}" in /root/.ansible/ansible.log) unset ANSIBLE_LOG_PATH ;; esac' in text
     assert 'export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-${ANSIBLE_HOME}/ansible.cfg}"' in text
     assert 'export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"' in text
     assert 'mkdir -p "$ANSIBLE_LOCAL_TEMP"' in text

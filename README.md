@@ -110,6 +110,7 @@ Installed shape:
 
 - `/opt/ansible`: shared Ansible workspace, owned by the selected install user/group, mode `0750`
 - `/opt/ansible/apps/<python>_<ansible>`: one uv-managed runtime per version pair
+- `/opt/ansible/apps/python`: shared uv-managed Python install location when system scope needs uv to download Python
 - `/opt/ansible/current`: symlink to the active runtime
 - `/etc/profile.d/ansible.sh`: shell integration and runtime switch function
 - `/usr/local/bin/ansible-local-switch`: persistent runtime switch helper
@@ -199,6 +200,7 @@ you want `/etc/profile.d`, `/etc/ansible`, or system-wide completion files.
 - `ANSIBLE_LINK_ETC=0` for `SCOPE=user`
 - `RAW_BASE=https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main`
 - `UV_BIN=/usr/local/bin/uv` in the default system layout; userspace installs auto-place `uv` under `${ANSIBLE_HOME}/apps/bin/uv` when missing
+- `UV_PYTHON_INSTALL_DIR=/opt/ansible/apps/python` in the default system layout, so virtualenv Python symlinks point either to system Python or a shared uv-managed Python, never below root-private paths such as `/root/.local/share/uv`
 
 `ANSIBLE_CORE_VERSION` is still accepted as a legacy input alias. The installer still installs the Ansible community package (`ansible==${ANSIBLE_VERSION}`), not an `ansible-core==13.x` package. Yes, naming is a trap. We step around it.
 
@@ -266,6 +268,17 @@ Use an existing `uv` binary:
 ```bash
 curl -L ansible-uv.bitbull.ch | sudo -n env UV_BIN=/usr/local/bin/uv sh
 ```
+
+Override the shared uv Python install directory for system scope:
+
+```bash
+curl -L ansible-uv.bitbull.ch | sudo -n env UV_PYTHON_INSTALL_DIR=/opt/ansible/apps/python sh
+```
+
+In system scope this must be a path traversable by users in the Ansible group.
+The default keeps it under `/opt/ansible/apps/python`; this avoids virtualenv
+Python symlinks into `/root/.local/share/uv`, which unprivileged users cannot
+execute even when they belong to the `ansible` group.
 
 ### Real-world userspace patterns
 
@@ -356,6 +369,9 @@ copy in `${ANSIBLE_HOME}/apps/bin/uv`.
   target install user before installing.
 - System integration files are owned by `root` and the selected Ansible group;
   the Ansible workspace remains owned by the selected install user/group.
+- System-scope runtime Python resolves either to system Python or to a uv-managed
+  Python below `/opt/ansible/apps/python` by default, and existing runtimes whose
+  Python resolves outside shared system paths are rebuilt on rerun.
 - Ansible tree directories are mode `0750`; regular data/config files are mode
   `0640`; executable payloads and virtualenv commands are mode `0750`.
 - The generated default `ansible.cfg` keeps SSH host key checking enabled. For
