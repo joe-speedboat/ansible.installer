@@ -12,6 +12,7 @@ export ANSIBLE_VERSION="${ANSIBLE_VERSION:-${ANSIBLE_CORE_VERSION:-@ANSIBLE_VERS
 # Compatibility for older shells/scripts that still inspect ANSIBLE_CORE_VERSION.
 export ANSIBLE_CORE_VERSION="${ANSIBLE_CORE_VERSION:-${ANSIBLE_VERSION}}"
 export ANSIBLE_RUNTIME="${ANSIBLE_RUNTIME:-${PYTHON_VERSION}_${ANSIBLE_VERSION}}"
+export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
 
 # Drop root-scoped Ansible runtime paths when the profile is sourced after
 # switching from root to an unprivileged account. This keeps sudo/runuser based
@@ -32,6 +33,8 @@ if [ -z "${BASH_VERSION:-}" ]; then
   export VIRTUAL_ENV
   VIRTUAL_ENV_DISABLE_PROMPT=1
   export VIRTUAL_ENV_DISABLE_PROMPT
+  PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
+  export PYTHONDONTWRITEBYTECODE
   ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-${ANSIBLE_HOME}/ansible.cfg}"
   export ANSIBLE_CONFIG
   ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-${HOME}/.ansible/tmp}"
@@ -101,6 +104,7 @@ umask 0007
 if [[ $- == *i* ]]; then
   alias cda='cd $ANSIBLE_HOME'
   alias via='ansible-vault edit'
+  alias ansible-pip-install='uv pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python"'
   export PS1="(${ANSIBLE_RUNTIME})[\u@\h \W]\$ "
   if [[ "$USER" == "root" ]]; then
     echo "WARNING: Using Ansible as root is not recommended. Use an unprivileged user instead."

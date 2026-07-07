@@ -66,11 +66,12 @@ ANSIBLE_VENV_PATH="${ANSIBLE_VENV_PATH:-${ANSIBLE_APPS_DIR}/${ANSIBLE_RUNTIME}}"
 ANSIBLE_SWITCH_BIN="${ANSIBLE_SWITCH_BIN:-${ANSIBLE_BIN_DIR}/ansible-local-switch}"
 ANSIBLE_ADOC_BIN="${ANSIBLE_ADOC_BIN:-${ANSIBLE_BIN_DIR}/adoc}"
 ANSIBLE_INSTALL_OS_PACKAGES="${ANSIBLE_INSTALL_OS_PACKAGES:-}"
+ANSIBLE_PIP_PACKAGES="${ANSIBLE_PIP_PACKAGES:-ansible==${ANSIBLE_VERSION} argcomplete passlib jmespath netaddr dnspython}"
 # Default concrete layout in system scope: /opt/ansible/apps/<runtime>, /opt/ansible/current,
 # /etc/profile.d/ansible.sh, /etc/ansible, /usr/local/bin/ansible-local-switch, adoc.
 # User scope keeps role-owned integration below ${ANSIBLE_HOME}/apps/profile.d/ansible.sh,
 # ${ANSIBLE_HOME}/apps/bin, and ${ANSIBLE_HOME}/apps/.ansible-uv-installer.
-# Package install pattern: uv pip install --python ${ANSIBLE_VENV_PATH}/bin/python ansible==${ANSIBLE_VERSION} argcomplete.
+# Package install pattern: uv pip install --python ${ANSIBLE_VENV_PATH}/bin/python ${ANSIBLE_PIP_PACKAGES}.
 RAW_BASE="${RAW_BASE:-https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main}"
 UV_BIN="${UV_BIN:-}"
 UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-}"
@@ -129,6 +130,10 @@ run_as_install_user() {
   else
     fail "cannot run command as $INSTALL_USER; run as that user or install runuser/sudo"
   fi
+}
+
+run_python_payload_as_install_user() {
+  run_as_install_user env PYTHONDONTWRITEBYTECODE=1 "$@"
 }
 
 run_uv_as_install_user() {
@@ -476,9 +481,10 @@ else
   run_uv_as_install_user venv --python "$PYTHON_VERSION" "$ANSIBLE_VENV_PATH"
 fi
 
-log "Installing/upgrading ansible==${ANSIBLE_VERSION} and argcomplete"
-# Reruns use the equivalent of: uv pip install --upgrade ansible==${ANSIBLE_VERSION} argcomplete
-run_uv_as_install_user pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" "ansible==${ANSIBLE_VERSION}" argcomplete
+log "Installing/upgrading Python packages: ${ANSIBLE_PIP_PACKAGES}"
+# Reruns use the equivalent of: uv pip install --upgrade ${ANSIBLE_PIP_PACKAGES}
+# shellcheck disable=SC2086 # intentional word splitting: package specs are a whitespace-separated list.
+run_uv_as_install_user pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" $ANSIBLE_PIP_PACKAGES
 
 log "Updating active runtime symlink"
 ln -sfn "$ANSIBLE_VENV_PATH" "$ANSIBLE_HOME/current.tmp"
@@ -559,6 +565,8 @@ RAW_BASE=$RAW_BASE
 EOF_MARKER
 
 log "Applying ownership and permissions"
+log "Removing Python bytecode caches from managed runtimes"
+find "$ANSIBLE_APPS_DIR" -type d -name __pycache__ -prune -exec rm -rf {} +
 if [ "$(id -u)" -eq 0 ]; then
   chown -R "$(owner_group)" "$ANSIBLE_HOME"
   find "$ANSIBLE_HOME" -type l -exec chown -h "$(owner_group)" {} +
@@ -570,5 +578,5 @@ find "$ANSIBLE_APPS_DIR" -path '*/bin/*' -type f -exec chmod 0750 {} +
 chmod 0750 "$ANSIBLE_PROFILE_PATH" "$ANSIBLE_SWITCH_BIN" "$ANSIBLE_ADOC_BIN" 2>/dev/null || true
 
 log "Done. Active runtime: $ANSIBLE_RUNTIME"
-run_as_install_user "$ANSIBLE_VENV_PATH/bin/ansible" --version | sed -n '1,8p'
+run_python_payload_as_install_user "$ANSIBLE_VENV_PATH/bin/ansible" --version | sed -n '1,8p'
 printf '\nActivate in the current shell with:\n  source %s\n' "$ANSIBLE_PROFILE_PATH"
