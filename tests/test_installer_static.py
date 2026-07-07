@@ -6,6 +6,8 @@ ADOC = ROOT / "ansible" / "files" / "usr" / "local" / "bin" / "adoc"
 PROFILE = ROOT / "ansible" / "files" / "etc" / "profile.d" / "ansible.sh"
 SWITCH = ROOT / "ansible" / "files" / "usr" / "local" / "bin" / "ansible-local-switch"
 README = ROOT / "README.md"
+AGENT = ROOT / "AGENT.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 
 
 def test_installer_files_exist():
@@ -13,6 +15,25 @@ def test_installer_files_exist():
     assert ADOC.exists(), "adoc must be vendored under ansible/files/usr/local/bin"
     assert PROFILE.exists(), "profile script must be outsourced under ansible/files/etc/profile.d"
     assert SWITCH.exists(), "switch helper must be outsourced under ansible/files/usr/local/bin"
+    assert AGENT.exists(), "AGENT.md must document maintainer and agent workflow"
+    assert CHANGELOG.exists(), "CHANGELOG.md must document release history"
+
+
+def test_release_docs_cover_v1_0_0_and_maintenance_workflow():
+    agent_text = AGENT.read_text()
+    changelog_text = CHANGELOG.read_text()
+    assert "## [1.0.0] - 2026-07-07" in changelog_text
+    assert "ANSIBLE_PIP_PACKAGES" in changelog_text
+    assert "passlib" in changelog_text
+    assert "Rocky 10.1" in changelog_text
+    assert "Release process" in agent_text
+    assert "Development checks" in agent_text
+    assert "Lab validation" in agent_text
+    assert "PYTHONDONTWRITEBYTECODE=1" in agent_text
+    assert "ansible-pip-install" in agent_text
+    assert "Every behavior change must be validated against every affected combination" in agent_text
+    assert "document the expected result" in agent_text
+    assert "permission scan prints no paths" in agent_text
 
 
 def test_one_liner_documented():
@@ -55,6 +76,7 @@ def test_readme_documents_supported_variables_with_examples():
         "RAW_BASE=",
         "UV_BIN=/usr/local/bin/uv",
         "UV_PYTHON_INSTALL_DIR=/opt/ansible/apps/python",
+        "ANSIBLE_PIP_PACKAGES=",
     ]
     for marker in required:
         assert marker in text
@@ -102,6 +124,7 @@ def test_opt_ansible_tree_is_root_ansible_and_750():
     text = SETUP.read_text()
     assert 'chown -R "$(owner_group)" "$ANSIBLE_HOME"' in text
     assert 'find "$ANSIBLE_HOME" -type l -exec chown -h "$(owner_group)" {} +' in text
+    assert 'find "$ANSIBLE_APPS_DIR" -type d -name __pycache__ -prune -exec rm -rf {} +' in text
     assert 'find "$ANSIBLE_HOME" -type d -exec chmod 0750 {} +' in text
     assert 'find "$ANSIBLE_HOME" -type d -exec chmod g-s {} +' in text
     assert 'find "$ANSIBLE_HOME" -type f -exec chmod 0640 {} +' in text
@@ -129,6 +152,10 @@ def test_installer_contains_target_architecture_markers():
         "uv pip install",
         "ansible==${ANSIBLE_VERSION}",
         "argcomplete",
+        "passlib",
+        "jmespath",
+        "netaddr",
+        "dnspython",
         "/etc/ansible",
     ]
     for marker in required:
@@ -269,6 +296,8 @@ def test_installer_marks_and_allows_ansible_uv_reruns():
     assert "ANSIBLE_UV_MARKER" in text
     assert ".ansible-uv-installer" in text
     assert "uv pip install --upgrade" in text
+    assert "ANSIBLE_PIP_PACKAGES" in text
+    assert "passlib" in text
     assert "This is an ansible-uv managed installation; continuing" in text
 
 
@@ -296,8 +325,29 @@ def test_profile_uses_per_user_ansible_log_path():
     assert 'mkdir -p "$(dirname "$ANSIBLE_LOG_PATH")"' in text
 
 
+def test_profile_and_installer_avoid_runtime_bytecode_caches():
+    setup_text = SETUP.read_text()
+    profile_text = PROFILE.read_text()
+    assert 'run_python_payload_as_install_user' in setup_text
+    assert 'env PYTHONDONTWRITEBYTECODE=1' in setup_text
+    assert 'find "$ANSIBLE_APPS_DIR" -type d -name __pycache__ -prune -exec rm -rf {} +' in setup_text
+    assert 'export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"' in profile_text
+
+
 def test_outsourced_shell_files_have_markers():
     assert "ANSIBLE_UV_INSTALLER=1" in PROFILE.read_text()
     switch_text = SWITCH.read_text()
     assert "ansible-local-switch" in switch_text
     assert '[ -x "$runtime_dir/bin/ansible" ] || continue' in switch_text
+
+
+def test_installer_installs_default_control_node_pip_packages_and_documents_extension():
+    setup_text = SETUP.read_text()
+    profile_text = PROFILE.read_text()
+    readme_text = README.read_text()
+    assert 'ANSIBLE_PIP_PACKAGES="${ANSIBLE_PIP_PACKAGES:-ansible==${ANSIBLE_VERSION} argcomplete passlib jmespath netaddr dnspython}"' in setup_text
+    assert 'run_uv_as_install_user pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" $ANSIBLE_PIP_PACKAGES' in setup_text
+    assert 'alias ansible-pip-install=' in profile_text
+    assert 'uv pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python"' in profile_text
+    assert "ansible-pip-install passlib" in readme_text
+    assert "ANSIBLE_PIP_PACKAGES='ansible==13.4.0 argcomplete passlib jmespath netaddr dnspython pywinrm requests-ntlm'" in readme_text

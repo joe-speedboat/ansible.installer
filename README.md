@@ -201,6 +201,7 @@ you want `/etc/profile.d`, `/etc/ansible`, or system-wide completion files.
 - `RAW_BASE=https://raw.githubusercontent.com/joe-speedboat/ansible.installer/refs/heads/main`
 - `UV_BIN=/usr/local/bin/uv` in the default system layout; userspace installs auto-place `uv` under `${ANSIBLE_HOME}/apps/bin/uv` when missing
 - `UV_PYTHON_INSTALL_DIR=/opt/ansible/apps/python` in the default system layout, so virtualenv Python symlinks point either to system Python or a shared uv-managed Python, never below root-private paths such as `/root/.local/share/uv`
+- `ANSIBLE_PIP_PACKAGES=ansible==${ANSIBLE_VERSION} argcomplete passlib jmespath netaddr dnspython`
 
 `ANSIBLE_CORE_VERSION` is still accepted as a legacy input alias. The installer still installs the Ansible community package (`ansible==${ANSIBLE_VERSION}`), not an `ansible-core==13.x` package. Yes, naming is a trap. We step around it.
 
@@ -261,6 +262,31 @@ Test local payload files while developing:
 
 ```bash
 sudo RAW_BASE=file:///tmp/ansible.installer sh /tmp/ansible.installer/ansible/ansible_setup.sh
+```
+
+
+Install additional Python packages into the active Ansible runtime:
+
+```bash
+source /etc/profile.d/ansible.sh
+ansible-pip-install passlib
+ansible-pip-install jmespath netaddr dnspython
+```
+
+`ansible-pip-install` is a convenience alias for:
+
+```bash
+uv pip install --upgrade --python "$ANSIBLE_VENV_PATH/bin/python" <packages>
+```
+
+The installer already includes a small default control-node package set via
+`ANSIBLE_PIP_PACKAGES`: `ansible==${ANSIBLE_VERSION}`, `argcomplete`, `passlib`,
+`jmespath`, `netaddr` and `dnspython`. Override or extend it at install time if
+your playbooks need more controller-side Python modules:
+
+```bash
+curl -L ansible-uv.bitbull.ch \
+  | sudo -n env ANSIBLE_PIP_PACKAGES='ansible==13.4.0 argcomplete passlib jmespath netaddr dnspython pywinrm requests-ntlm' sh
 ```
 
 Use an existing `uv` binary:
