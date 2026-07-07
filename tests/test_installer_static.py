@@ -31,6 +31,9 @@ def test_release_docs_cover_v1_0_0_and_maintenance_workflow():
     assert "Lab validation" in agent_text
     assert "PYTHONDONTWRITEBYTECODE=1" in agent_text
     assert "ansible-pip-install" in agent_text
+    assert "Every behavior change must be validated against every affected combination" in agent_text
+    assert "document the expected result" in agent_text
+    assert "permission scan prints no paths" in agent_text
 
 
 def test_one_liner_documented():

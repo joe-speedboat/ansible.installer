@@ -96,6 +96,40 @@ Inspect matches and make sure no actual secret value is present.
 
 For release-level installer changes, static tests are not enough. Validate on a fresh Rocky/RHEL-like lab VM when possible.
 
+Every behavior change must be validated against every affected combination, not
+only the most obvious happy path. The goal is to make each impacted aspect fail
+visibly during review if it regresses. Pick the matrix from the touched code and
+document it in the PR or release notes before claiming the change is complete.
+
+Common combinations to consider:
+
+- `SCOPE=system` fresh install and rerun.
+- `SCOPE=user` fresh install and rerun.
+- Default runtime variables and explicit overrides such as `PYTHON_VERSION`,
+  `ANSIBLE_VERSION`, `ANSIBLE_RUNTIME`, `ANSIBLE_HOME`, `UV_BIN`,
+  `UV_PYTHON_INSTALL_DIR`, and `ANSIBLE_PIP_PACKAGES` when the change touches
+  them.
+- Clean host and ansible-uv managed host rerun paths.
+- Foreign-install detection paths when conflict detection changes.
+- Bash profile sourcing, POSIX `/etc/profile.d` sourcing, interactive aliases,
+  `ansible-local-switch`, and `adoc` when shell integration changes.
+- Permission scans and non-root usability when ownership, modes, bytecode, or
+  runtime paths change.
+
+For each tested combination, document the expected result before or alongside
+the command. An agent must be able to compare actual output to the documented
+expectation without guessing. Examples of useful expected results:
+
+- installer exits successfully and prints `Done. Active runtime: <runtime>`
+- rerun reuses the existing runtime and reports checked/up-to-date packages
+- `ansible localhost -m ping` returns `SUCCESS` with `ping: pong`
+- required Python imports succeed from the active runtime
+- `ansible-local-switch --list` shows the installed runtime
+- `adoc copy` opens documentation from the active runtime path
+- permission scan prints no paths
+- negative/conflict test stops before modifying the host and prints the expected
+  error reason
+
 Recommended local payload test:
 
 ```bash
