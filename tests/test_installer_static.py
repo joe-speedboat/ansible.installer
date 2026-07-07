@@ -6,6 +6,8 @@ ADOC = ROOT / "ansible" / "files" / "usr" / "local" / "bin" / "adoc"
 PROFILE = ROOT / "ansible" / "files" / "etc" / "profile.d" / "ansible.sh"
 SWITCH = ROOT / "ansible" / "files" / "usr" / "local" / "bin" / "ansible-local-switch"
 README = ROOT / "README.md"
+AGENT = ROOT / "AGENT.md"
+CHANGELOG = ROOT / "CHANGELOG.md"
 
 
 def test_installer_files_exist():
@@ -13,6 +15,22 @@ def test_installer_files_exist():
     assert ADOC.exists(), "adoc must be vendored under ansible/files/usr/local/bin"
     assert PROFILE.exists(), "profile script must be outsourced under ansible/files/etc/profile.d"
     assert SWITCH.exists(), "switch helper must be outsourced under ansible/files/usr/local/bin"
+    assert AGENT.exists(), "AGENT.md must document maintainer and agent workflow"
+    assert CHANGELOG.exists(), "CHANGELOG.md must document release history"
+
+
+def test_release_docs_cover_v1_0_0_and_maintenance_workflow():
+    agent_text = AGENT.read_text()
+    changelog_text = CHANGELOG.read_text()
+    assert "## [1.0.0] - 2026-07-07" in changelog_text
+    assert "ANSIBLE_PIP_PACKAGES" in changelog_text
+    assert "passlib" in changelog_text
+    assert "Rocky 10.1" in changelog_text
+    assert "Release process" in agent_text
+    assert "Development checks" in agent_text
+    assert "Lab validation" in agent_text
+    assert "PYTHONDONTWRITEBYTECODE=1" in agent_text
+    assert "ansible-pip-install" in agent_text
 
 
 def test_one_liner_documented():
